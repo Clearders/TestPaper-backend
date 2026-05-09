@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, create_engine
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from schemas import PaperStatus, UserRole
@@ -45,14 +46,14 @@ class QuestionRow(Base):
     type: Mapped[str] = mapped_column(String(16), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     difficulty: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
-    tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     text: Mapped[str] = mapped_column(String, nullable=False)
-    options: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    options: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     answer: Mapped[str] = mapped_column(String, nullable=False)
     has_latex: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source: Mapped[str | None] = mapped_column(String, nullable=True)
-    essay_blank_space: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    images: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    essay_blank_space: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    images: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     owner_id: Mapped[int | None] = mapped_column("ownerId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

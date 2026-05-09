@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision: str = "20260508_0002"
 down_revision: Union[str, None] = "20260507_0001"
@@ -28,7 +29,7 @@ def upgrade() -> None:
 
     op.add_column(
         "questions",
-        sa.Column("images", sa.JSON(), nullable=False, server_default="[]"),
+        sa.Column("images", postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
     )
 
 

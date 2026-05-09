@@ -12,8 +12,10 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "20260507_0001"
 down_revision: Union[str, None] = None
@@ -36,7 +38,7 @@ def sql_str(value: str | None) -> str:
 def sql_json(value: object | None) -> str:
     if value is None:
         return "NULL"
-    return sql_str(json.dumps(value)) + "::json"
+    return sql_str(json.dumps(value)) + "::jsonb"
 
 
 def sql_bool(value: bool) -> str:
@@ -293,13 +295,13 @@ def upgrade() -> None:
         sa.Column("type", sa.String(length=16), nullable=False),
         sa.Column("subject", sa.String(length=255), nullable=False),
         sa.Column("difficulty", sa.String(length=16), nullable=False),
-        sa.Column("tags", sa.JSON(), nullable=False),
+        sa.Column("tags", postgresql.JSONB(), nullable=False),
         sa.Column("text", sa.String(), nullable=False),
-        sa.Column("options", sa.JSON(), nullable=True),
+        sa.Column("options", postgresql.JSONB(), nullable=True),
         sa.Column("answer", sa.String(), nullable=False),
         sa.Column("has_latex", sa.Boolean(), nullable=False),
         sa.Column("source", sa.String(), nullable=True),
-        sa.Column("essay_blank_space", sa.JSON(), nullable=True),
+        sa.Column("essay_blank_space", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),

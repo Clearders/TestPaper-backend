@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -46,6 +45,23 @@ def get_redis_url(*, required: bool = False) -> str | None:
             raise RuntimeError("REDIS_URL is required for Redis/Celery features.")
         return None
     return raw
+
+
+def get_auth_cookie_name() -> str:
+    return os.getenv("AUTH_COOKIE_NAME", "testpapers_session")
+
+
+def get_auth_cookie_domain() -> str | None:
+    return os.getenv("AUTH_COOKIE_DOMAIN") or None
+
+
+def get_auth_cookie_secure() -> bool:
+    return os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
+
+
+def get_auth_cookie_samesite() -> str:
+    value = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+    return value if value in {"lax", "strict", "none"} else "lax"
 
 
 def get_celery_broker_url() -> str:

@@ -186,6 +186,34 @@ class PaperEntity(PaperBase):
     updatedAt: datetime
 
 
+class GeneticAlgorithmOptions(BaseModel):
+    populationSize: int = Field(default=80, ge=20, le=500)
+    generations: int = Field(default=120, ge=10, le=1000)
+    crossoverRate: float = Field(default=0.85, ge=0, le=1)
+    mutationRate: float = Field(default=0.08, ge=0, le=1)
+    elitismCount: int = Field(default=4, ge=1, le=50)
+    tournamentSize: int = Field(default=3, ge=2, le=20)
+    randomSeed: int | None = None
+
+
+class PaperGenerateRequest(PaperBase):
+    questionCount: int = Field(default=10, ge=1, le=100)
+    difficultyTargets: dict[Difficulty, int] = Field(default_factory=dict)
+    typeTargets: dict[QuestionType, int] = Field(default_factory=dict)
+    requiredTags: list[str] = Field(default_factory=list)
+    subjectStrict: bool = True
+    algorithm: GeneticAlgorithmOptions = Field(default_factory=GeneticAlgorithmOptions)
+
+    @model_validator(mode="after")
+    def normalize_generation_request(self):
+        if self.totalMarks < self.questionCount:
+            raise ValueError("totalMarks must be greater than or equal to questionCount")
+        self.requiredTags = [tag.strip() for tag in self.requiredTags if tag and tag.strip()]
+        self.difficultyTargets = {key: value for key, value in self.difficultyTargets.items() if value > 0}
+        self.typeTargets = {key: value for key, value in self.typeTargets.items() if value > 0}
+        return self
+
+
 class QuestionOrderItem(BaseModel):
     questionId: int = Field(gt=0)
     orderNo: int = Field(gt=0)
@@ -257,8 +285,6 @@ class UserEntity(BaseModel):
 
 
 class AuthSession(BaseModel):
-    token: str
-    tokenType: Literal["bearer"] = "bearer"
     expiresAt: datetime
     user: UserEntity
 

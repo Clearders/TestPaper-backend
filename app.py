@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
+import random
 import secrets
 from collections import Counter
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
-from contextlib import asynccontextmanager
 from math import ceil
 from typing import Any, cast
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -22,35 +24,46 @@ from repositories import PAPERS, QUESTIONS, has_latex
 from schemas import (
     AuthSession,
     Difficulty,
-    EssayBlankSpace,
     ExportPreviewRequest,
     ImageUploadPayload,
     ImageUploadResponse,
     LoginRequest,
     PaperCreate,
     PaperEntity,
+    PaperGenerateRequest,
     PaperQuestion,
     PaperStatus,
     PaperUpdate,
-    Permission,
     QuestionBase,
     QuestionCreate,
     QuestionEntity,
-    QuestionImage,
     QuestionOrder,
     QuestionOrderUpdate,
     QuestionRef,
     QuestionType,
-    RegisterRequest,
     QuestionUpdate,
+    RegisterRequest,
     SortOrder,
     UserCreate,
     UserEntity,
     UserRole,
     UserUpdate,
 )
-from security import auth_error, get_current_user, has_permission, password_hash, require_permission, user_row_to_entity, verify_password
-from time_utils import now_utc
+from security import (
+    auth_error,
+    get_current_user,
+    get_request_token,
+    get_user_from_token,
+    has_permission,
+    password_hash,
+    require_permission,
+    user_row_to_entity,
+    verify_password,
+)
+from settings import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure
+from time_utils import as_aware_utc, now_utc
+
+SESSION_TTL = timedelta(hours=12)
 
 
 def normalize_question_payload(payload: QuestionBase, question_id: int, created_at: datetime | None = None) -> QuestionEntity:
@@ -64,15 +77,103 @@ def normalize_question_payload(payload: QuestionBase, question_id: int, created_
     )
 
 
-def create_auth_session(session: Session, user_row: UserRow) -> AuthSession:
+def create_auth_session(session: Session, user_row: UserRow) -> tuple[str, AuthSession]:
     now = now_utc()
     session.query(AuthTokenRow).filter(AuthTokenRow.expires_at <= now).delete(synchronize_session=False)
     token = secrets.token_urlsafe(48)
-    expires_at = now + timedelta(hours=12)
+    expires_at = now + SESSION_TTL
     session.add(AuthTokenRow(token=token, user_id=user_row.id, created_at=now, expires_at=expires_at))
     session.commit()
     session.refresh(user_row)
-    return AuthSession(token=token, expiresAt=expires_at, user=user_row_to_entity(user_row))
+    return token, AuthSession(expiresAt=expires_at, user=user_row_to_entity(user_row))
+
+
+def set_auth_cookie(response: Response, token: str, expires_at: datetime) -> None:
+    max_age = max(0, int((expires_at - now_utc()).total_seconds()))
+    response.set_cookie(
+        key=get_auth_cookie_name(),
+        value=token,
+        max_age=max_age,
+        expires=max_age,
+        path="/",
+        domain=get_auth_cookie_domain(),
+        secure=get_auth_cookie_secure(),
+        httponly=True,
+        samesite=get_auth_cookie_samesite(),
+    )
+
+
+def clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=get_auth_cookie_name(),
+        path="/",
+        domain=get_auth_cookie_domain(),
+        secure=get_auth_cookie_secure(),
+        httponly=True,
+        samesite=get_auth_cookie_samesite(),
+    )
+
+
+def refresh_auth_session(token: str | None) -> tuple[str, AuthSession]:
+    if not token:
+        raise auth_error()
+
+    with SessionLocal() as session:
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        if token_row is None:
+            raise auth_error("INVALID_TOKEN", "Invalid or expired token")
+        if as_aware_utc(token_row.expires_at) <= now_utc():
+            session.delete(token_row)
+            session.commit()
+            raise auth_error("TOKEN_EXPIRED", "Token has expired")
+
+        user_row = cast(UserRow | None, session.get(UserRow, token_row.user_id))
+        if user_row is None or not user_row.is_active:
+            session.delete(token_row)
+            session.commit()
+            raise auth_error("ACCOUNT_DISABLED", "Account is disabled")
+
+        session.delete(token_row)
+        session.flush()
+        return create_auth_session(session, user_row)
+
+
+class RealtimeConnectionManager:
+    def __init__(self) -> None:
+        self._connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self._connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        self._connections.discard(websocket)
+
+    async def broadcast(self, event: str, payload: dict[str, Any]) -> None:
+        if not self._connections:
+            return
+
+        message = json.dumps({"event": event, "payload": payload}, default=str)
+        stale: list[WebSocket] = []
+        for websocket in self._connections:
+            try:
+                await websocket.send_text(message)
+            except RuntimeError:
+                stale.append(websocket)
+
+        for websocket in stale:
+            self.disconnect(websocket)
+
+
+realtime = RealtimeConnectionManager()
+
+
+def get_websocket_token(websocket: WebSocket) -> str | None:
+    header = websocket.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() == "bearer" and token:
+        return token
+    return websocket.cookies.get(get_auth_cookie_name())
 
 
 def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> QuestionEntity:
@@ -286,6 +387,200 @@ def build_export_questions(paper: PaperEntity, question_order: QuestionOrder, in
     return flattened
 
 
+DIFFICULTY_MARK_WEIGHTS: dict[Difficulty, float] = {
+    Difficulty.easy: 1.0,
+    Difficulty.medium: 1.5,
+    Difficulty.hard: 2.0,
+}
+
+
+def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[int]:
+    weights = [DIFFICULTY_MARK_WEIGHTS.get(question.difficulty, 1.0) for question in questions]
+    weight_total = sum(weights) or 1.0
+    raw_marks = [max(1, total_marks * weight / weight_total) for weight in weights]
+    marks = [max(1, int(value)) for value in raw_marks]
+    remaining = total_marks - sum(marks)
+
+    fractions = sorted(
+        enumerate(raw_marks),
+        key=lambda item: item[1] - int(item[1]),
+        reverse=remaining > 0,
+    )
+    index = 0
+    while remaining != 0 and fractions:
+        question_index = fractions[index % len(fractions)][0]
+        if remaining > 0:
+            marks[question_index] += 1
+            remaining -= 1
+        elif marks[question_index] > 1:
+            marks[question_index] -= 1
+            remaining += 1
+        index += 1
+
+    return marks
+
+
+def default_difficulty_targets(question_count: int) -> dict[Difficulty, int]:
+    easy = round(question_count * 0.30)
+    medium = round(question_count * 0.50)
+    hard = question_count - easy - medium
+    return {
+        Difficulty.easy: easy,
+        Difficulty.medium: medium,
+        Difficulty.hard: hard,
+    }
+
+
+def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, int]:
+    total = sum(targets.values())
+    if not targets or total == question_count:
+        return targets
+
+    normalized = {key: round(question_count * value / total) for key, value in targets.items()}
+    difference = question_count - sum(normalized.values())
+    ordered_keys = sorted(targets, key=lambda key: targets[key], reverse=difference > 0)
+    index = 0
+    while difference != 0 and ordered_keys:
+        key = ordered_keys[index % len(ordered_keys)]
+        if difference > 0:
+            normalized[key] += 1
+            difference -= 1
+        elif normalized[key] > 0:
+            normalized[key] -= 1
+            difference += 1
+        index += 1
+    return normalized
+
+
+def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionEntity]:
+    candidates = [
+        question for question in QUESTIONS.values()
+        if not payload.subjectStrict or question.subject == payload.subject
+    ]
+    if len(candidates) < payload.questionCount:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "INSUFFICIENT_QUESTIONS",
+                "message": f"Need at least {payload.questionCount} candidate questions, found {len(candidates)}.",
+            },
+        )
+    return candidates
+
+
+def individual_fitness(
+    individual: list[int],
+    question_by_id: dict[int, QuestionEntity],
+    difficulty_targets: dict[Difficulty, int],
+    type_targets: dict[QuestionType, int],
+    required_tags: set[str],
+) -> float:
+    questions = [question_by_id[question_id] for question_id in individual]
+    difficulty_counts = Counter(question.difficulty for question in questions)
+    type_counts = Counter(question.type for question in questions)
+    tags = {tag.lower() for question in questions for tag in question.tags}
+    subjects = {question.subject for question in questions}
+
+    penalty = 0.0
+    for difficulty, target in difficulty_targets.items():
+        penalty += abs(difficulty_counts[difficulty] - target) * 40
+    for question_type, target in type_targets.items():
+        penalty += abs(type_counts[question_type] - target) * 30
+    penalty += len(required_tags - tags) * 80
+
+    diversity_bonus = min(len(tags), 10) * 2 + min(len(subjects), 3) * 3
+    return 1000 - penalty + diversity_bonus
+
+
+def crossover_individual(parent_a: list[int], parent_b: list[int], candidate_ids: list[int], question_count: int, rng: random.Random) -> list[int]:
+    pivot = rng.randint(1, question_count - 1) if question_count > 1 else 1
+    child = parent_a[:pivot]
+    for question_id in parent_b + candidate_ids:
+        if len(child) >= question_count:
+            break
+        if question_id not in child:
+            child.append(question_id)
+    return child
+
+
+def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_rate: float, rng: random.Random) -> list[int]:
+    mutated = individual[:]
+    if not candidate_ids:
+        return mutated
+    for index in range(len(mutated)):
+        if rng.random() >= mutation_rate:
+            continue
+        available = [question_id for question_id in candidate_ids if question_id not in mutated]
+        if available:
+            mutated[index] = rng.choice(available)
+    return mutated
+
+
+def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict[str, Any]:
+    candidates = build_generation_candidates(payload)
+    question_by_id = {question.id: question for question in candidates}
+    candidate_ids = list(question_by_id)
+    rng = random.Random(payload.algorithm.randomSeed)
+    question_count = payload.questionCount
+    difficulty_targets = normalize_targets(payload.difficultyTargets or default_difficulty_targets(question_count), question_count)
+    type_targets = normalize_targets(payload.typeTargets, question_count)
+    required_tags = {tag.lower() for tag in payload.requiredTags}
+    population_size = max(payload.algorithm.populationSize, payload.algorithm.elitismCount + payload.algorithm.tournamentSize)
+
+    population = [rng.sample(candidate_ids, question_count) for _ in range(population_size)]
+    best = population[0]
+    best_score = float("-inf")
+
+    def score(individual: list[int]) -> float:
+        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags)
+
+    for generation in range(payload.algorithm.generations):
+        ranked = sorted(((score(individual), individual) for individual in population), key=lambda item: item[0], reverse=True)
+        if ranked[0][0] > best_score:
+            best_score, best = ranked[0][0], ranked[0][1][:]
+
+        elite_count = min(payload.algorithm.elitismCount, len(ranked))
+        next_population = [individual[:] for _, individual in ranked[:elite_count]]
+
+        while len(next_population) < population_size:
+            tournament = rng.sample(ranked, min(payload.algorithm.tournamentSize, len(ranked)))
+            parent_a = max(tournament, key=lambda item: item[0])[1]
+            tournament = rng.sample(ranked, min(payload.algorithm.tournamentSize, len(ranked)))
+            parent_b = max(tournament, key=lambda item: item[0])[1]
+
+            if rng.random() < payload.algorithm.crossoverRate:
+                child = crossover_individual(parent_a, parent_b, candidate_ids, question_count, rng)
+            else:
+                child = parent_a[:]
+            next_population.append(mutate_individual(child, candidate_ids, payload.algorithm.mutationRate, rng))
+
+        population = next_population
+
+    selected_questions = [question_by_id[question_id] for question_id in best]
+    marks = distribute_marks(selected_questions, payload.totalMarks)
+    paper_questions = [
+        PaperQuestion(questionId=question.id, orderNo=index + 1, marks=marks[index])
+        for index, question in enumerate(selected_questions)
+    ]
+    diagnostics = {
+        "fitness": round(best_score, 2),
+        "candidateCount": len(candidates),
+        "questionCount": question_count,
+        "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
+        "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
+        "typeTargets": {key.value: value for key, value in type_targets.items()},
+        "typeActual": dict(Counter(question.type.value for question in selected_questions)),
+        "requiredTags": sorted(required_tags),
+        "coveredRequiredTags": sorted(required_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
+        "algorithm": payload.algorithm.model_dump(),
+    }
+    return {
+        "paperQuestions": paper_questions,
+        "selectedQuestions": selected_questions,
+        "diagnostics": diagnostics,
+    }
+
+
 NEXT_QUESTION_ID = 1
 NEXT_PAPER_ID = 1
 
@@ -373,19 +668,20 @@ async def root(request: Request):
 
 
 @app.post("/api/v1/auth/login")
-async def login(request: Request, payload: LoginRequest):
+async def login(request: Request, response: Response, payload: LoginRequest):
     username = payload.username.strip().lower()
     with SessionLocal() as session:
         user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.username == username)).first())
         if user_row is None or not user_row.is_active or not verify_password(payload.password, user_row.password_hash):
             raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
 
-        auth_session = create_auth_session(session, user_row)
+        token, auth_session = create_auth_session(session, user_row)
+        set_auth_cookie(response, token, auth_session.expiresAt)
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
 @app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED)
-async def register(request: Request, payload: RegisterRequest):
+async def register(request: Request, response: Response, payload: RegisterRequest):
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
         if existing is not None:
@@ -404,7 +700,8 @@ async def register(request: Request, payload: RegisterRequest):
         session.add(user_row)
         session.flush()
 
-        auth_session = create_auth_session(session, user_row)
+        token, auth_session = create_auth_session(session, user_row)
+        set_auth_cookie(response, token, auth_session.expiresAt)
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
@@ -413,16 +710,59 @@ async def get_me(request: Request, current_user: UserEntity = Depends(get_curren
     return envelope(current_user.model_dump(mode="json"), request)
 
 
+@app.post("/api/v1/auth/refresh")
+async def refresh_session(request: Request, response: Response):
+    token, auth_session = refresh_auth_session(get_request_token(request))
+    set_auth_cookie(response, token, auth_session.expiresAt)
+    return envelope(auth_session.model_dump(mode="json"), request)
+
+
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, current_user: UserEntity = Depends(get_current_user)):
-    header = request.headers.get("authorization", "")
-    _, _, token = header.partition(" ")
+async def logout(request: Request):
+    token = get_request_token(request)
     with SessionLocal() as session:
-        token_row = session.get(AuthTokenRow, token)
+        token_row = session.get(AuthTokenRow, token) if token else None
         if token_row is not None:
             session.delete(token_row)
             session.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    clear_auth_cookie(response)
+    return response
+
+
+@app.websocket("/api/v1/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    try:
+        current_user = get_user_from_token(get_websocket_token(websocket))
+    except HTTPException:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await realtime.connect(websocket)
+    try:
+        await websocket.send_json(
+            {
+                "event": "auth.connected",
+                "payload": {
+                    "user": current_user.model_dump(mode="json"),
+                    "serverTime": now_utc().isoformat(),
+                },
+            }
+        )
+        while True:
+            raw_message = await websocket.receive_text()
+            try:
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                await websocket.send_json({"event": "error", "payload": {"message": "Invalid JSON message"}})
+                continue
+
+            if message.get("event") == "ping":
+                await websocket.send_json({"event": "pong", "payload": {"serverTime": now_utc().isoformat()}})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime.disconnect(websocket)
 
 
 @app.get("/api/v1/users")
@@ -595,6 +935,7 @@ async def create_question(request: Request, payload: QuestionCreate, current_use
     question = normalize_question_payload(payload, question_id=NEXT_QUESTION_ID)
     QUESTIONS[NEXT_QUESTION_ID] = question
     NEXT_QUESTION_ID += 1
+    await realtime.broadcast("question.created", {"question": question_to_dict(question), "actorId": current_user.id})
     return envelope(question_to_dict(question), request)
 
 
@@ -608,6 +949,7 @@ async def update_question(
     question = get_question_or_404(question_id)
     updated = apply_question_update(question, payload)
     QUESTIONS[question_id] = updated
+    await realtime.broadcast("question.updated", {"question": question_to_dict(updated), "actorId": current_user.id})
     return envelope(question_to_dict(updated), request)
 
 
@@ -615,6 +957,7 @@ async def update_question(
 async def delete_question(question_id: int, current_user: UserEntity = Depends(require_permission("questions:delete"))):
     get_question_or_404(question_id)
     del QUESTIONS[question_id]
+    await realtime.broadcast("question.deleted", {"questionId": question_id, "actorId": current_user.id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -637,7 +980,36 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Use
     )
     PAPERS[NEXT_PAPER_ID] = paper
     NEXT_PAPER_ID += 1
+    await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
+
+
+@app.post("/api/v1/papers/generate", status_code=status.HTTP_201_CREATED)
+async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: UserEntity = Depends(require_permission("papers:write"))):
+    global NEXT_PAPER_ID
+    generated = generate_paper_with_genetic_algorithm(payload)
+    paper = PaperEntity(
+        id=NEXT_PAPER_ID,
+        title=payload.title,
+        subject=payload.subject,
+        duration=payload.duration,
+        totalMarks=payload.totalMarks,
+        questions=generated["paperQuestions"],
+        status=PaperStatus.draft,
+        createdAt=now_utc(),
+        updatedAt=now_utc(),
+    )
+    PAPERS[NEXT_PAPER_ID] = paper
+    NEXT_PAPER_ID += 1
+    paper_payload = paper_with_questions(paper)
+    await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
+    return envelope(
+        {
+            "paper": paper_payload,
+            "diagnostics": generated["diagnostics"],
+        },
+        request,
+    )
 
 
 @app.get("/api/v1/papers/{paper_id}")
@@ -668,6 +1040,7 @@ async def update_paper(
     data["updatedAt"] = now_utc()
     updated = PaperEntity(**data)
     PAPERS[paper_id] = updated
+    await realtime.broadcast("paper.updated", {"paper": paper_to_dict(updated), "actorId": current_user.id})
     return envelope(paper_to_dict(updated), request)
 
 
@@ -694,6 +1067,7 @@ async def add_paper_questions(
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper_id] = paper
+    await realtime.broadcast("paper.questions.added", {"paper": paper_to_dict(paper), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -711,6 +1085,7 @@ async def remove_paper_question(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "QUESTION_NOT_FOUND", "message": "Question not found in paper"})
     paper.updatedAt = now_utc()
     PAPERS[paper_id] = paper
+    await realtime.broadcast("paper.question.removed", {"paper": paper_to_dict(paper), "questionId": question_id, "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -731,6 +1106,7 @@ async def reorder_paper_questions(
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper_id] = paper
+    await realtime.broadcast("paper.questions.reordered", {"paper": paper_to_dict(paper), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -816,8 +1192,8 @@ async def task_export_paper(
     current_user: UserEntity = Depends(require_permission("papers:read")),
 ):
     """Dispatch an asynchronous paper export. Returns a task ID for polling."""
+
     from celery_app import celery
-    import json as _json
 
     result = celery.send_task(
         "export_paper",

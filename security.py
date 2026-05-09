@@ -7,7 +7,8 @@ from typing import cast
 from fastapi import Depends, HTTPException, Request, status
 
 from db import AuthTokenRow, SessionLocal, UserRow
-from schemas import Permission, ROLE_PERMISSIONS, UserEntity, UserRole
+from schemas import ROLE_PERMISSIONS, Permission, UserEntity, UserRole
+from settings import get_auth_cookie_name
 from time_utils import as_aware_utc, now_utc
 
 
@@ -63,10 +64,16 @@ def forbidden_error(permission: Permission) -> HTTPException:
     )
 
 
-def get_current_user(request: Request) -> UserEntity:
+def get_request_token(request: Request) -> str | None:
     header = request.headers.get("authorization", "")
     scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    if scheme.lower() == "bearer" and token:
+        return token
+    return request.cookies.get(get_auth_cookie_name())
+
+
+def get_user_from_token(token: str | None) -> UserEntity:
+    if not token:
         raise auth_error()
 
     with SessionLocal() as session:
@@ -81,6 +88,10 @@ def get_current_user(request: Request) -> UserEntity:
         if user_row is None or not user_row.is_active:
             raise auth_error("ACCOUNT_DISABLED", "Account is disabled")
         return user_row_to_entity(user_row)
+
+
+def get_current_user(request: Request) -> UserEntity:
+    return get_user_from_token(get_request_token(request))
 
 
 def require_permission(permission: Permission):
