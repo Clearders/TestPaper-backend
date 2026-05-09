@@ -2,6 +2,8 @@
 
 基于 FastAPI 的后端服务，使用 PostgreSQL 持久化存储，Redis 缓存，以及 Celery 异步任务处理。
 
+前端项目地址(https://github.com/Clearders/TestPapers)
+
 ## 数据库
 
 启动应用或运行迁移之前，请先设置 `DATABASE_URL`。后端仅支持 PostgreSQL；SQLite 或未设置 `DATABASE_URL` 时会在启动时被拒绝。
