@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+DEFAULT_API_HOST = "0.0.0.0"
+DEFAULT_API_PORT = 8000
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -39,6 +41,18 @@ def get_cors_origins() -> list[str]:
     if not raw_origins:
         return DEFAULT_CORS_ORIGINS
     return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+def get_api_host() -> str:
+    return os.getenv("API_HOST", DEFAULT_API_HOST)
+
+
+def get_api_port() -> int:
+    raw = os.getenv("API_PORT", str(DEFAULT_API_PORT))
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError("API_PORT must be an integer.") from exc
 
 
 def get_redis_url(*, required: bool = False) -> str | None:

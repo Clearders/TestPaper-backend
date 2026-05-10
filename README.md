@@ -92,6 +92,8 @@ Redis 同时用作 **缓存** 和 **Celery 消息代理 / 结果后端**。默�
 
 | 变量 | 用途 | 默认值 |
 |------|------|------|
+| `API_HOST` | API 监听地址 | `0.0.0.0` |
+| `API_PORT` | API 监听端口 | `8000` |
 | `DATABASE_URL` | PostgreSQL 连接字符串 | `postgresql+psycopg://postgres:ABCdefg123@localhost:5432/postgres` |
 | `REDIS_URL` | Redis 连接字符串 | `redis://localhost:6379/0` |
 | `CORS_ORIGINS` | CORS 允许的来源（逗号分隔） | `localhost:3000,127.0.0.1:3000,localhost:3001,127.0.0.1:3001` |
