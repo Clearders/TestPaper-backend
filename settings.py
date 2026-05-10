@@ -9,6 +9,9 @@ DEFAULT_CORS_ORIGINS = [
     "http://127.0.0.1:3001",
 ]
 
+DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:ABCdefg123@localhost:5432/postgres"
+DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+
 
 def normalize_database_url(url: str) -> str:
     if url.startswith("postgres://"):
@@ -22,8 +25,8 @@ def get_database_url(*, required: bool = True) -> str | None:
     raw_url = os.getenv("DATABASE_URL")
     if not raw_url:
         if required:
-            raise RuntimeError("DATABASE_URL is required and must point to a PostgreSQL database.")
-        return None
+            return DEFAULT_DATABASE_URL
+        return DEFAULT_DATABASE_URL
 
     normalized_url = normalize_database_url(raw_url)
     if not normalized_url.startswith("postgresql+psycopg://"):
@@ -42,8 +45,8 @@ def get_redis_url(*, required: bool = False) -> str | None:
     raw = os.getenv("REDIS_URL")
     if not raw:
         if required:
-            raise RuntimeError("REDIS_URL is required for Redis/Celery features.")
-        return None
+            return DEFAULT_REDIS_URL
+        return DEFAULT_REDIS_URL
     return raw
 
 
@@ -65,14 +68,10 @@ def get_auth_cookie_samesite() -> str:
 
 
 def get_celery_broker_url() -> str:
-    raw = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL")
-    if not raw:
-        raise RuntimeError("CELERY_BROKER_URL or REDIS_URL is required for Celery.")
+    raw = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
     return raw
 
 
 def get_celery_result_backend_url() -> str:
-    raw = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL")
-    if not raw:
-        raise RuntimeError("CELERY_RESULT_BACKEND or REDIS_URL is required for Celery result backend.")
+    raw = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
     return raw

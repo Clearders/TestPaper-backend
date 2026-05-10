@@ -6,12 +6,13 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from celery import chain, group, shared_task
+from celery import group, shared_task
+from sqlalchemy import func
 
 from celery_app import BaseTask, celery
 from db import QuestionRow, SessionLocal
-from repositories import QUESTIONS, question_row_to_entity
-from schemas import Difficulty, QuestionType
+from repositories import QUESTIONS
+from schemas import QuestionType
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +42,20 @@ def compute_question_stats(self: BaseTask) -> dict[str, Any]:
     """Compute aggregate question statistics (counts, breakdowns)."""
     session = _worker_session()
     try:
-        rows = session.query(QuestionRow).all()
-        entities = [question_row_to_entity(row) for row in rows]
-
-        type_counts = Counter(e.type.value for e in entities)
-        difficulty_counts = Counter(e.difficulty.value for e in entities)
-        subject_counts = Counter(e.subject for e in entities)
-        latex_count = sum(1 for e in entities if e.hasLatex)
+        total = session.query(func.count(QuestionRow.id)).scalar() or 0
+        type_counts = Counter(dict(session.query(QuestionRow.type, func.count(QuestionRow.id)).group_by(QuestionRow.type).all()))
+        difficulty_counts = Counter(dict(session.query(QuestionRow.difficulty, func.count(QuestionRow.id)).group_by(QuestionRow.difficulty).all()))
+        subject_counts = Counter(dict(session.query(QuestionRow.subject, func.count(QuestionRow.id)).group_by(QuestionRow.subject).all()))
+        latex_count = session.query(func.count(QuestionRow.id)).filter(QuestionRow.has_latex.is_(True)).scalar() or 0
         tag_counter = Counter(
             str(tag).strip().lower()
-            for e in entities
-            for tag in (e.tags or [])
+            for tags in session.query(QuestionRow.tags)
+            for tag in (tags[0] or [])
             if tag is not None
         )
 
         return {
-            "total": len(entities),
+            "total": total,
             "byType": dict(type_counts),
             "byDifficulty": dict(difficulty_counts),
             "bySubject": dict(subject_counts),
@@ -84,8 +83,6 @@ def export_paper_task(
     Worker return value is stored in Redis via the Celery result backend,
     so callers can poll for completion.
     """
-    import importlib
-
     from repositories import PAPERS
 
     paper = PAPERS.get(paper_id)

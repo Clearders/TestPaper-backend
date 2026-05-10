@@ -7,6 +7,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
+from itertools import chain
 from math import ceil
 from typing import Any, cast
 from uuid import uuid4
@@ -15,12 +16,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, W
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import String, cast as sql_cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app_factory import create_app
 from db import AuthTokenRow, PaperRow, QuestionRow, SessionLocal, UserRow, engine
-from repositories import PAPERS, QUESTIONS, has_latex
+from repositories import PAPERS, QUESTIONS, has_latex, question_row_to_entity
 from schemas import (
     AuthSession,
     Difficulty,
@@ -291,22 +292,22 @@ def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "VALIDATION_ERROR", "message": f"{message_prefix} must not contain duplicate order numbers"})
 
 
-def sort_questions(items: list[QuestionEntity], sort_by: str | None, sort_order: SortOrder) -> list[QuestionEntity]:
-    key_map = {
-        "id": lambda item: item.id,
-        "createdAt": lambda item: item.createdAt,
-        "updatedAt": lambda item: item.updatedAt,
-        "subject": lambda item: item.subject.lower(),
-        "difficulty": lambda item: item.difficulty.value,
-        "type": lambda item: item.type.value,
-    }
-    primary_key = key_map.get(sort_by or "createdAt", key_map["createdAt"])
-    secondary_key = key_map["id"]
-    reverse = sort_order == SortOrder.desc
-    return sorted(items, key=lambda item: (primary_key(item), secondary_key(item)), reverse=reverse)
+QUESTION_SORT_COLUMNS = {
+    "id": QuestionRow.id,
+    "createdAt": QuestionRow.created_at,
+    "updatedAt": QuestionRow.updated_at,
+    "subject": func.lower(QuestionRow.subject),
+    "difficulty": QuestionRow.difficulty,
+    "type": QuestionRow.type,
+}
 
 
-def filter_questions(
+def question_has_tag(tag: str):
+    tag_values = func.jsonb_array_elements_text(QuestionRow.tags).table_valued("value").alias("tag_values")
+    return select(1).select_from(tag_values).where(func.lower(tag_values.c.value) == tag).exists()
+
+
+def query_questions_page(
     q: str | None = None,
     subject: str | None = None,
     difficulty: Difficulty | None = None,
@@ -314,39 +315,51 @@ def filter_questions(
     tags: str | None = None,
     has_latex_filter: bool | None = None,
     owner_id: int | None = None,
-) -> list[QuestionEntity]:
-    tag_set = {item.strip().lower() for item in tags.split(",") if item.strip()} if tags else set()
+    sort_by: str | None = None,
+    sort_order: SortOrder = SortOrder.desc,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    tag_filters = [item.strip().lower() for item in tags.split(",") if item.strip()] if tags else []
     keyword = q.lower().strip() if q else None
-    results = []
-    for question in QUESTIONS.values():
-        question_tags = [str(tag) for tag in (question.tags or []) if tag is not None]
-        question_options = [str(option) for option in (question.options or []) if option is not None]
-        if subject and question.subject != subject:
-            continue
-        if difficulty and question.difficulty != difficulty:
-            continue
-        if question_type and question.type != question_type:
-            continue
-        if has_latex_filter is not None and question.hasLatex != has_latex_filter:
-            continue
-        if owner_id is not None and question.ownerId != owner_id:
-            continue
-        if tag_set and not tag_set.issubset({tag.lower() for tag in question_tags}):
-            continue
-        if keyword:
-            haystack = f"{question.text} {question.subject} {question.answer} {' '.join(question_tags)} {' '.join(question_options)}".lower()
-            if keyword not in haystack:
-                continue
-        results.append(question)
-    return results
 
+    statement = select(QuestionRow)
+    if subject:
+        statement = statement.where(QuestionRow.subject == subject)
+    if difficulty:
+        statement = statement.where(QuestionRow.difficulty == difficulty.value)
+    if question_type:
+        statement = statement.where(QuestionRow.type == question_type.value)
+    if has_latex_filter is not None:
+        statement = statement.where(QuestionRow.has_latex == has_latex_filter)
+    if owner_id is not None:
+        statement = statement.where(QuestionRow.owner_id == owner_id)
+    if keyword:
+        keyword_pattern = f"%{keyword}%"
+        statement = statement.where(
+            or_(
+                func.lower(QuestionRow.text).like(keyword_pattern),
+                func.lower(QuestionRow.subject).like(keyword_pattern),
+                func.lower(QuestionRow.answer).like(keyword_pattern),
+                func.lower(QuestionRow.source).like(keyword_pattern),
+                func.lower(sql_cast(QuestionRow.tags, String)).like(keyword_pattern),
+                func.lower(sql_cast(QuestionRow.options, String)).like(keyword_pattern),
+            )
+        )
+    for tag in tag_filters:
+        statement = statement.where(question_has_tag(tag))
 
-def paginated(items: list[Any], page: int, page_size: int) -> dict[str, Any]:
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
+    sort_column = QUESTION_SORT_COLUMNS.get(sort_by or "createdAt", QUESTION_SORT_COLUMNS["createdAt"])
+    order_by = sort_column.desc() if sort_order == SortOrder.desc else sort_column.asc()
+    id_order = QuestionRow.id.desc() if sort_order == SortOrder.desc else QuestionRow.id.asc()
+    offset = (page - 1) * page_size
+
+    with SessionLocal() as session:
+        total = int(session.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0)
+        rows = session.scalars(statement.order_by(order_by, id_order).offset(offset).limit(page_size)).all()
+
     return {
-        "items": items[start:end],
+        "items": [question_row_to_entity(row) for row in rows],
         "pagination": {
             "page": page,
             "pageSize": page_size,
@@ -453,10 +466,11 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 
 
 def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionEntity]:
-    candidates = [
-        question for question in QUESTIONS.values()
-        if not payload.subjectStrict or question.subject == payload.subject
-    ]
+    statement = select(QuestionRow)
+    if payload.subjectStrict:
+        statement = statement.where(QuestionRow.subject == payload.subject)
+    with SessionLocal() as session:
+        candidates = [question_row_to_entity(row) for row in session.scalars(statement)]
     if len(candidates) < payload.questionCount:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -475,11 +489,16 @@ def individual_fitness(
     type_targets: dict[QuestionType, int],
     required_tags: set[str],
 ) -> float:
-    questions = [question_by_id[question_id] for question_id in individual]
-    difficulty_counts = Counter(question.difficulty for question in questions)
-    type_counts = Counter(question.type for question in questions)
-    tags = {tag.lower() for question in questions for tag in question.tags}
-    subjects = {question.subject for question in questions}
+    difficulty_counts: Counter[Difficulty] = Counter()
+    type_counts: Counter[QuestionType] = Counter()
+    tags: set[str] = set()
+    subjects: set[str] = set()
+    for question_id in individual:
+        question = question_by_id[question_id]
+        difficulty_counts[question.difficulty] += 1
+        type_counts[question.type] += 1
+        subjects.add(question.subject)
+        tags.update(tag.lower() for tag in question.tags)
 
     penalty = 0.0
     for difficulty, target in difficulty_targets.items():
@@ -495,11 +514,13 @@ def individual_fitness(
 def crossover_individual(parent_a: list[int], parent_b: list[int], candidate_ids: list[int], question_count: int, rng: random.Random) -> list[int]:
     pivot = rng.randint(1, question_count - 1) if question_count > 1 else 1
     child = parent_a[:pivot]
-    for question_id in parent_b + candidate_ids:
+    child_ids = set(child)
+    for question_id in chain(parent_b, candidate_ids):
         if len(child) >= question_count:
             break
-        if question_id not in child:
+        if question_id not in child_ids:
             child.append(question_id)
+            child_ids.add(question_id)
     return child
 
 
@@ -507,12 +528,18 @@ def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_
     mutated = individual[:]
     if not candidate_ids:
         return mutated
-    for index in range(len(mutated)):
+    selected_ids = set(mutated)
+    for index, current_id in enumerate(mutated):
         if rng.random() >= mutation_rate:
             continue
-        available = [question_id for question_id in candidate_ids if question_id not in mutated]
-        if available:
-            mutated[index] = rng.choice(available)
+        if len(selected_ids) >= len(candidate_ids):
+            continue
+        selected_ids.remove(current_id)
+        replacement_id = rng.choice(candidate_ids)
+        while replacement_id == current_id or replacement_id in selected_ids:
+            replacement_id = rng.choice(candidate_ids)
+        mutated[index] = replacement_id
+        selected_ids.add(replacement_id)
     return mutated
 
 
@@ -832,12 +859,16 @@ async def delete_user(user_id: int, current_user: UserEntity = Depends(require_p
 
 @app.get("/api/v1/meta/subjects")
 async def list_subjects(request: Request, current_user: UserEntity = Depends(require_permission("questions:read"))):
-    return envelope(sorted({question.subject for question in QUESTIONS.values()}), request)
+    with SessionLocal() as session:
+        subjects = session.scalars(select(QuestionRow.subject).distinct().order_by(QuestionRow.subject)).all()
+    return envelope(list(subjects), request)
 
 
 @app.get("/api/v1/meta/tags")
 async def list_tags(request: Request, current_user: UserEntity = Depends(require_permission("questions:read"))):
-    counter = Counter(str(tag) for question in QUESTIONS.values() for tag in question.tags if tag is not None)
+    with SessionLocal() as session:
+        tag_lists = session.scalars(select(QuestionRow.tags)).all()
+    counter = Counter(str(tag) for tags in tag_lists for tag in (tags or []) if tag is not None)
     return envelope(sorted(counter.keys()), request)
 
 
@@ -882,9 +913,19 @@ async def list_questions(
     sortOrder: SortOrder = SortOrder.desc,
     current_user: UserEntity = Depends(require_permission("questions:read")),
 ):
-    results = filter_questions(q=q, subject=subject, difficulty=difficulty, question_type=type, tags=tags, has_latex_filter=hasLatex, owner_id=ownerId)
-    results = sort_questions(results, sortBy, sortOrder)
-    page_data = paginated(results, page, pageSize)
+    page_data = query_questions_page(
+        q=q,
+        subject=subject,
+        difficulty=difficulty,
+        question_type=type,
+        tags=tags,
+        has_latex_filter=hasLatex,
+        owner_id=ownerId,
+        sort_by=sortBy,
+        sort_order=sortOrder,
+        page=page,
+        page_size=pageSize,
+    )
     can_read_answers = has_permission(current_user, "answers:read")
     page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
@@ -906,9 +947,19 @@ async def list_my_questions(
     sortOrder: SortOrder = SortOrder.desc,
     current_user: UserEntity = Depends(require_permission("questions:read")),
 ):
-    results = filter_questions(q=q, subject=subject, difficulty=difficulty, question_type=type, tags=tags, has_latex_filter=hasLatex, owner_id=current_user.id)
-    results = sort_questions(results, sortBy, sortOrder)
-    page_data = paginated(results, page, pageSize)
+    page_data = query_questions_page(
+        q=q,
+        subject=subject,
+        difficulty=difficulty,
+        question_type=type,
+        tags=tags,
+        has_latex_filter=hasLatex,
+        owner_id=current_user.id,
+        sort_by=sortBy,
+        sort_order=sortOrder,
+        page=page,
+        page_size=pageSize,
+    )
     can_read_answers = has_permission(current_user, "answers:read")
     page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
