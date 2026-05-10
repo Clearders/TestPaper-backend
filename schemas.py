@@ -201,6 +201,7 @@ class PaperGenerateRequest(PaperBase):
     difficultyTargets: dict[Difficulty, int] = Field(default_factory=dict)
     typeTargets: dict[QuestionType, int] = Field(default_factory=dict)
     requiredTags: list[str] = Field(default_factory=list)
+    optionalTags: list[str] = Field(default_factory=list)
     subjectStrict: bool = True
     algorithm: GeneticAlgorithmOptions = Field(default_factory=GeneticAlgorithmOptions)
 
@@ -209,6 +210,7 @@ class PaperGenerateRequest(PaperBase):
         if self.totalMarks < self.questionCount:
             raise ValueError("totalMarks must be greater than or equal to questionCount")
         self.requiredTags = [tag.strip() for tag in self.requiredTags if tag and tag.strip()]
+        self.optionalTags = [tag.strip() for tag in self.optionalTags if tag and tag.strip()]
         self.difficultyTargets = {key: value for key, value in self.difficultyTargets.items() if value > 0}
         self.typeTargets = {key: value for key, value in self.typeTargets.items() if value > 0}
         return self

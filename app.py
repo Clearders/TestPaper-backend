@@ -488,6 +488,7 @@ def individual_fitness(
     difficulty_targets: dict[Difficulty, int],
     type_targets: dict[QuestionType, int],
     required_tags: set[str],
+    optional_tags: set[str],
 ) -> float:
     difficulty_counts: Counter[Difficulty] = Counter()
     type_counts: Counter[QuestionType] = Counter()
@@ -507,8 +508,9 @@ def individual_fitness(
         penalty += abs(type_counts[question_type] - target) * 30
     penalty += len(required_tags - tags) * 80
 
+    optional_tag_bonus = len(optional_tags & tags) * 24
     diversity_bonus = min(len(tags), 10) * 2 + min(len(subjects), 3) * 3
-    return 1000 - penalty + diversity_bonus
+    return 1000 - penalty + optional_tag_bonus + diversity_bonus
 
 
 def crossover_individual(parent_a: list[int], parent_b: list[int], candidate_ids: list[int], question_count: int, rng: random.Random) -> list[int]:
@@ -552,6 +554,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
     difficulty_targets = normalize_targets(payload.difficultyTargets or default_difficulty_targets(question_count), question_count)
     type_targets = normalize_targets(payload.typeTargets, question_count)
     required_tags = {tag.lower() for tag in payload.requiredTags}
+    optional_tags = {tag.lower() for tag in payload.optionalTags} - required_tags
     population_size = max(payload.algorithm.populationSize, payload.algorithm.elitismCount + payload.algorithm.tournamentSize)
 
     population = [rng.sample(candidate_ids, question_count) for _ in range(population_size)]
@@ -559,7 +562,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
     best_score = float("-inf")
 
     def score(individual: list[int]) -> float:
-        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags)
+        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags, optional_tags)
 
     for generation in range(payload.algorithm.generations):
         ranked = sorted(((score(individual), individual) for individual in population), key=lambda item: item[0], reverse=True)
@@ -599,6 +602,8 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
         "typeActual": dict(Counter(question.type.value for question in selected_questions)),
         "requiredTags": sorted(required_tags),
         "coveredRequiredTags": sorted(required_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
+        "optionalTags": sorted(optional_tags),
+        "coveredOptionalTags": sorted(optional_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
         "algorithm": payload.algorithm.model_dump(),
     }
     return {
