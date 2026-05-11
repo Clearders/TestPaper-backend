@@ -9,6 +9,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from itertools import chain
 from math import ceil
+from time import perf_counter
 from typing import Any, cast
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from schemas import (
     AuthSession,
     Difficulty,
     ExportPreviewRequest,
+    GenerationAllocationMode,
     ImageUploadPayload,
     ImageUploadResponse,
     LoginRequest,
@@ -210,6 +212,7 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> Qu
             source=data.get("source"),
             essayBlankSpace=data.get("essayBlankSpace"),
             images=data.get("images") or [],
+            scoreWeight=data.get("scoreWeight", 1.0),
             ownerId=data.get("ownerId"),
         )
     except ValidationError as exc:
@@ -274,6 +277,37 @@ def get_paper_or_404(paper_id: int) -> PaperEntity:
     if paper is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "PAPER_NOT_FOUND", "message": "Paper not found"})
     return paper
+
+
+def ensure_owner_exists(owner_id: int | None) -> None:
+    if owner_id is None:
+        return
+    with SessionLocal() as session:
+        if session.get(UserRow, owner_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "VALIDATION_ERROR", "message": "ownerId must reference an existing user"},
+            )
+
+
+def normalize_question_owner(owner_id: int | None, current_user: UserEntity) -> int:
+    requested_owner_id = owner_id if owner_id is not None else current_user.id
+    if requested_owner_id != current_user.id and not has_permission(current_user, "users:manage"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "FORBIDDEN", "message": "Only administrators can assign questions to another user"},
+        )
+    ensure_owner_exists(requested_owner_id)
+    return requested_owner_id
+
+
+def ensure_question_owner_access(question: QuestionEntity, current_user: UserEntity) -> None:
+    if question.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "FORBIDDEN", "message": "You can only modify questions you own"},
+    )
 
 
 def validate_question_payload(payload: QuestionBase) -> None:
@@ -400,28 +434,23 @@ def build_export_questions(paper: PaperEntity, question_order: QuestionOrder, in
     return flattened
 
 
-DIFFICULTY_MARK_WEIGHTS: dict[Difficulty, float] = {
-    Difficulty.easy: 1.0,
-    Difficulty.medium: 1.5,
-    Difficulty.hard: 2.0,
-}
-
-
 def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[int]:
-    weights = [DIFFICULTY_MARK_WEIGHTS.get(question.difficulty, 1.0) for question in questions]
+    weights = [max(0.01, question.scoreWeight) for question in questions]
     weight_total = sum(weights) or 1.0
     raw_marks = [max(1, total_marks * weight / weight_total) for weight in weights]
     marks = [max(1, int(value)) for value in raw_marks]
     remaining = total_marks - sum(marks)
 
-    fractions = sorted(
+    ranked = sorted(
         enumerate(raw_marks),
         key=lambda item: item[1] - int(item[1]),
         reverse=remaining > 0,
     )
     index = 0
-    while remaining != 0 and fractions:
-        question_index = fractions[index % len(fractions)][0]
+    attempts = 0
+    max_attempts = max(1, len(ranked) * max(total_marks, sum(marks)))
+    while remaining != 0 and ranked and attempts < max_attempts:
+        question_index = ranked[index % len(ranked)][0]
         if remaining > 0:
             marks[question_index] += 1
             remaining -= 1
@@ -429,8 +458,18 @@ def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[
             marks[question_index] -= 1
             remaining += 1
         index += 1
+        attempts += 1
 
     return marks
+
+
+def resolve_generation_question_count(payload: PaperGenerateRequest, candidates: list[QuestionEntity]) -> int:
+    if payload.allocationMode == GenerationAllocationMode.question_count:
+        return payload.questionCount or 10
+
+    average_weight = sum(max(0.01, question.scoreWeight) for question in candidates) / len(candidates)
+    estimated_count = max(1, round(payload.totalMarks / max(0.01, average_weight)))
+    return max(1, min(estimated_count, payload.totalMarks, len(candidates), 100))
 
 
 def default_difficulty_targets(question_count: int) -> dict[Difficulty, int]:
@@ -471,12 +510,13 @@ def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionE
         statement = statement.where(QuestionRow.subject == payload.subject)
     with SessionLocal() as session:
         candidates = [question_row_to_entity(row) for row in session.scalars(statement)]
-    if len(candidates) < payload.questionCount:
+    required_count = payload.questionCount if payload.allocationMode == GenerationAllocationMode.question_count else 1
+    if len(candidates) < (required_count or 1):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least {payload.questionCount} candidate questions, found {len(candidates)}.",
+                "message": f"Need at least {required_count or 1} candidate questions, found {len(candidates)}.",
             },
         )
     return candidates
@@ -489,17 +529,20 @@ def individual_fitness(
     type_targets: dict[QuestionType, int],
     required_tags: set[str],
     optional_tags: set[str],
+    target_score_weight: float | None = None,
 ) -> float:
     difficulty_counts: Counter[Difficulty] = Counter()
     type_counts: Counter[QuestionType] = Counter()
     tags: set[str] = set()
     subjects: set[str] = set()
+    score_weight_total = 0.0
     for question_id in individual:
         question = question_by_id[question_id]
         difficulty_counts[question.difficulty] += 1
         type_counts[question.type] += 1
         subjects.add(question.subject)
         tags.update(tag.lower() for tag in question.tags)
+        score_weight_total += max(0.01, question.scoreWeight)
 
     penalty = 0.0
     for difficulty, target in difficulty_targets.items():
@@ -507,6 +550,8 @@ def individual_fitness(
     for question_type, target in type_targets.items():
         penalty += abs(type_counts[question_type] - target) * 30
     penalty += len(required_tags - tags) * 80
+    if target_score_weight is not None:
+        penalty += abs(score_weight_total - target_score_weight) * 8
 
     optional_tag_bonus = len(optional_tags & tags) * 24
     diversity_bonus = min(len(tags), 10) * 2 + min(len(subjects), 3) * 3
@@ -550,19 +595,28 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
     question_by_id = {question.id: question for question in candidates}
     candidate_ids = list(question_by_id)
     rng = random.Random(payload.algorithm.randomSeed)
-    question_count = payload.questionCount
+    question_count = resolve_generation_question_count(payload, candidates)
+    if len(candidates) < question_count:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "INSUFFICIENT_QUESTIONS",
+                "message": f"Need at least {question_count} candidate questions, found {len(candidates)}.",
+            },
+        )
     difficulty_targets = normalize_targets(payload.difficultyTargets or default_difficulty_targets(question_count), question_count)
     type_targets = normalize_targets(payload.typeTargets, question_count)
     required_tags = {tag.lower() for tag in payload.requiredTags}
     optional_tags = {tag.lower() for tag in payload.optionalTags} - required_tags
     population_size = max(payload.algorithm.populationSize, payload.algorithm.elitismCount + payload.algorithm.tournamentSize)
+    target_score_weight = payload.totalMarks if payload.allocationMode == GenerationAllocationMode.total_score else None
 
     population = [rng.sample(candidate_ids, question_count) for _ in range(population_size)]
     best = population[0]
     best_score = float("-inf")
 
     def score(individual: list[int]) -> float:
-        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags, optional_tags)
+        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags, optional_tags, target_score_weight)
 
     for generation in range(payload.algorithm.generations):
         ranked = sorted(((score(individual), individual) for individual in population), key=lambda item: item[0], reverse=True)
@@ -596,6 +650,9 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
         "fitness": round(best_score, 2),
         "candidateCount": len(candidates),
         "questionCount": question_count,
+        "allocationMode": payload.allocationMode.value,
+        "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
+        "marksActual": sum(marks),
         "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
         "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
         "typeTargets": {key.value: value for key, value in type_targets.items()},
@@ -985,9 +1042,7 @@ async def get_question(
 async def create_question(request: Request, payload: QuestionCreate, current_user: UserEntity = Depends(require_permission("questions:write"))):
     global NEXT_QUESTION_ID
     validate_question_payload(payload)
-    # Auto-assign ownerId from current user if not explicitly provided
-    if payload.ownerId is None:
-        payload.ownerId = current_user.id
+    payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     question = normalize_question_payload(payload, question_id=NEXT_QUESTION_ID)
     QUESTIONS[NEXT_QUESTION_ID] = question
     NEXT_QUESTION_ID += 1
@@ -1003,6 +1058,11 @@ async def update_question(
     current_user: UserEntity = Depends(require_permission("questions:write")),
 ):
     question = get_question_or_404(question_id)
+    ensure_question_owner_access(question, current_user)
+    if "ownerId" in payload.model_fields_set and payload.ownerId is None and not has_permission(current_user, "users:manage"):
+        payload.ownerId = current_user.id
+    elif payload.ownerId is not None:
+        payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     updated = apply_question_update(question, payload)
     QUESTIONS[question_id] = updated
     await realtime.broadcast("question.updated", {"question": question_to_dict(updated), "actorId": current_user.id})
@@ -1011,7 +1071,8 @@ async def update_question(
 
 @app.delete("/api/v1/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_question(question_id: int, current_user: UserEntity = Depends(require_permission("questions:delete"))):
-    get_question_or_404(question_id)
+    question = get_question_or_404(question_id)
+    ensure_question_owner_access(question, current_user)
     del QUESTIONS[question_id]
     await realtime.broadcast("question.deleted", {"questionId": question_id, "actorId": current_user.id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1193,8 +1254,10 @@ async def redis_health(request: Request):
     try:
         from redis_client import get_redis
         client = get_redis()
-        latency_ms = round(client.ping() * 1000 if callable(getattr(client, "ping", None)) else 0, 2)
-        info = client.info(section="server")
+        start = perf_counter()
+        client.ping()
+        latency_ms = round((perf_counter() - start) * 1000, 2)
+        info = cast(dict[str, Any], client.info(section="server"))
         return envelope(
             {"status": "connected", "redisVersion": info.get("redis_version"), "latencyMs": latency_ms},
             request,

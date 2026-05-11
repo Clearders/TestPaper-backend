@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -54,6 +54,7 @@ class QuestionRow(Base):
     source: Mapped[str | None] = mapped_column(String, nullable=True)
     essay_blank_space: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     images: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    score_weight: Mapped[float] = mapped_column("scoreWeight", Float, nullable=False, default=1.0)
     owner_id: Mapped[int | None] = mapped_column("ownerId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

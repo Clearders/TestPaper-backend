@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
 
 DEFAULT_API_HOST = "0.0.0.0"
 DEFAULT_API_PORT = 8000
@@ -76,9 +77,13 @@ def get_auth_cookie_secure() -> bool:
     return os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
 
 
-def get_auth_cookie_samesite() -> str:
+def get_auth_cookie_samesite() -> Literal["lax", "strict", "none"]:
     value = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
-    return value if value in {"lax", "strict", "none"} else "lax"
+    if value == "strict":
+        return "strict"
+    if value == "none":
+        return "none"
+    return "lax"
 
 
 def get_celery_broker_url() -> str:

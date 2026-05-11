@@ -36,6 +36,11 @@ class QuestionOrder(str, Enum):
     categorized = "categorized"
 
 
+class GenerationAllocationMode(str, Enum):
+    question_count = "question_count"
+    total_score = "total_score"
+
+
 class UserRole(str, Enum):
     admin = "admin"
     teacher = "teacher"
@@ -100,6 +105,7 @@ class QuestionBase(BaseModel):
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None
     images: list[QuestionImage] = Field(default_factory=list)
+    scoreWeight: float = Field(default=1.0, gt=0, le=100)
     ownerId: int | None = None
 
     @model_validator(mode="after")
@@ -140,6 +146,7 @@ class QuestionUpdate(BaseModel):
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None
     images: list[QuestionImage] | None = None
+    scoreWeight: float | None = Field(default=None, gt=0, le=100)
     ownerId: int | None = None
 
 
@@ -165,7 +172,7 @@ class PaperBase(BaseModel):
     duration: int = Field(gt=0)
     totalMarks: int = Field(gt=0)
 
-0
+
 class PaperCreate(PaperBase):
     questions: list[QuestionRef] = Field(default_factory=list)
 
@@ -197,7 +204,8 @@ class GeneticAlgorithmOptions(BaseModel):
 
 
 class PaperGenerateRequest(PaperBase):
-    questionCount: int = Field(default=10, ge=1, le=100)
+    allocationMode: GenerationAllocationMode = GenerationAllocationMode.question_count
+    questionCount: int | None = Field(default=None, ge=1, le=100)
     difficultyTargets: dict[Difficulty, int] = Field(default_factory=dict)
     typeTargets: dict[QuestionType, int] = Field(default_factory=dict)
     requiredTags: list[str] = Field(default_factory=list)
@@ -207,7 +215,9 @@ class PaperGenerateRequest(PaperBase):
 
     @model_validator(mode="after")
     def normalize_generation_request(self):
-        if self.totalMarks < self.questionCount:
+        if self.allocationMode == GenerationAllocationMode.question_count and self.questionCount is None:
+            self.questionCount = 10
+        if self.questionCount is not None and self.totalMarks < self.questionCount:
             raise ValueError("totalMarks must be greater than or equal to questionCount")
         self.requiredTags = [tag.strip() for tag in self.requiredTags if tag and tag.strip()]
         self.optionalTags = [tag.strip() for tag in self.optionalTags if tag and tag.strip()]
