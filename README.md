@@ -16,7 +16,7 @@ TestPaper-backend/
 ├── schemas.py             # Pydantic 请求/响应模型（20+ 数据模型）
 ├── repositories.py        # QuestionStore 与 PaperStore（类字典缓存接口）
 ├── security.py            # 认证、密码哈希、权限检查
-├── tasks.py               # Celery 异步任务定义（7 个任务）
+├── tasks.py               # Celery 异步任务定义（5 个任务 + 导出格式转换）
 ├── celery_app.py          # Celery 应用配置
 ├── redis_client.py        # Redis 客户端与缓存工具
 ├── time_utils.py          # UTC 时间工具
@@ -29,7 +29,9 @@ TestPaper-backend/
     └── versions/
         ├── 20260507_0001_initial_schema.py         # 初始化：用户、试题、试卷表 + 种子数据
         ├── 20260508_0002_personal_questions_and_images.py  # 添加 owner_id 和 images 字段
-        └── 20260509_0003_json_columns_to_jsonb.py  # JSON 列转换为 JSONB 类型
+        ├── 20260509_0003_json_columns_to_jsonb.py  # JSON 列转换为 JSONB 类型
+        ├── 20260511_0004_question_score_weight.py  # 添加 scoreWeight 分值权重字段
+        └── 20260511_0005_identity_ids.py           # id 列转为数据库自增 IDENTITY
 ```
 
 ## 技术栈
@@ -68,14 +70,14 @@ alembic upgrade head
 |------|------|------|
 | `users` | 用户账户 | id, username, displayName, passwordHash, role, isActive |
 | `auth_tokens` | 认证令牌 | token, user_id, created_at, expires_at |
-| `questions` | 试题 | id, type, subject, difficulty, tags, text, options, answer, has_latex, images, owner_id |
+| `questions` | 试题 | id, type, subject, difficulty, tags, text, options, answer, has_latex, source, images, scoreWeight, owner_id |
 | `papers` | 试卷 | id, title, subject, duration, totalMarks, status |
 | `paper_questions` | 试卷-试题关联 | paper_id, question_id, orderNo, marks |
 
 ### 预置数据
 
 初始迁移包含：
-- **10 道示例试题**：涵盖数学、物理、化学，包含选择题、填空题、简答题
+- **10 道示例试题**：涵盖数学、物理、化学，包含选择题、判断题、填空题、简答题、解答题
 - **3 个内置用户**：
 
 | 用户名 | 密码 | 角色 | 权限 |
@@ -129,7 +131,7 @@ celery -A celery_app beat --loglevel=info
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|:---:|
 | `POST` | `/login` | 用户名密码登录，设置 HttpOnly Cookie | 否 |
-| `POST` | `/register` | 公开注册（创建教师账户） | 否 |
+| `POST` | `/register` | 公开注册（创建 viewer 账户） | 否 |
 | `GET` | `/me` | 获取当前用户信息 | 是 |
 | `POST` | `/refresh` | 刷新会话令牌 | 是 |
 | `POST` | `/logout` | 登出，清除会话和 Cookie | 是 |
@@ -138,8 +140,8 @@ celery -A celery_app beat --loglevel=info
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/` | 列出所有用户 |
-| `POST` | `/` | 创建用户 |
+| `GET` | `/` | 列出所有用户（按 id 排序） |
+| `POST` | `/` | 创建用户（可指定角色） |
 | `PATCH` | `/{user_id}` | 更新用户（角色、密码、启用状态） |
 | `DELETE` | `/{user_id}` | 删除用户 |
 
@@ -154,7 +156,7 @@ celery -A celery_app beat --loglevel=info
 | `PATCH` | `/{question_id}` | 更新试题 | `questions:write` |
 | `DELETE` | `/{question_id}` | 删除试题 | `questions:delete` |
 
-筛选参数：`q`（全文搜索）、`subject`、`difficulty`、`type`、`tags`、`hasLatex`、`ownerId`、`includeAnswer`，以及分页排序参数。
+筛选参数：`q`（全文搜索）、`subject`、`difficulty`、`type`、`tags`、`hasLatex`、`ownerId`、`includeAnswer`，以及分页排序参数。`scoreWeight` 字段用于遗传算法自动组卷时分配分值权重。
 
 ### 试卷管理 (`/api/v1/papers/`)
 
@@ -167,13 +169,13 @@ celery -A celery_app beat --loglevel=info
 | `POST` | `/{paper_id}/questions` | 向试卷添加试题 | `papers:write` |
 | `DELETE` | `/{paper_id}/questions/{question_id}` | 从试卷移除试题 | `papers:write` |
 | `PUT` | `/{paper_id}/questions/order` | 调整试题排序 | `papers:write` |
-| `POST` | `/{paper_id}/export-preview` | 导出预览 | `papers:read` |
+| `POST` | `/{paper_id}/export-preview` | 导出预览（同步，仅 json） | `papers:read` |
 
 ### 图片上传 (`/api/v1/images/`)
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `POST` | `/upload` | 上传试题配图（PNG/JPEG/GIF/WebP/SVG） | `questions:write` |
+| `POST` | `/upload` | 上传试题配图（仅 PNG，最大 30MB） | `questions:write` |
 
 ### 元数据 (`/api/v1/meta/`)
 
