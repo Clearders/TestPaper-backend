@@ -42,7 +42,7 @@ class AuthTokenRow(Base):
 class QuestionRow(Base):
     __tablename__ = "questions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     type: Mapped[str] = mapped_column(String(16), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     difficulty: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
@@ -63,7 +63,7 @@ class QuestionRow(Base):
 class PaperRow(Base):
     __tablename__ = "papers"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)

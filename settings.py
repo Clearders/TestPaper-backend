@@ -12,7 +12,6 @@ DEFAULT_CORS_ORIGINS = [
     "http://127.0.0.1:3001",
 ]
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:ABCdefg123@localhost:5432/postgres"
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 
 
@@ -28,8 +27,8 @@ def get_database_url(*, required: bool = True) -> str | None:
     raw_url = os.getenv("DATABASE_URL")
     if not raw_url:
         if required:
-            return DEFAULT_DATABASE_URL
-        return DEFAULT_DATABASE_URL
+            raise RuntimeError("DATABASE_URL is required.")
+        return None
 
     normalized_url = normalize_database_url(raw_url)
     if not normalized_url.startswith("postgresql+psycopg://"):

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from celery import group, shared_task
+from celery import shared_task
 from sqlalchemy import func
 
-from celery_app import BaseTask, celery
+from celery_app import BaseTask
 from db import QuestionRow, SessionLocal
 from repositories import QUESTIONS
 from schemas import QuestionType
@@ -166,6 +165,10 @@ def _to_txt_format(result: dict[str, Any]) -> dict[str, Any]:
 @shared_task(name="validate_question", bind=True, base=BaseTask)
 def validate_question_task(self: BaseTask, question_id: int) -> dict[str, Any]:
     """Validate a single question's data integrity."""
+    return _validate_question(question_id)
+
+
+def _validate_question(question_id: int) -> dict[str, Any]:
     q = QUESTIONS.get(question_id)
     if q is None:
         return {"questionId": question_id, "status": "missing", "issues": ["Question not found"]}
@@ -189,18 +192,12 @@ def validate_question_task(self: BaseTask, question_id: int) -> dict[str, Any]:
 
 @shared_task(name="validate_all_questions", bind=True, base=BaseTask)
 def validate_all_questions_task(self: BaseTask) -> dict[str, Any]:
-    """Dispatch a validation sub-task for every question in the system.
-
-    Uses a Celery *group* so individual validations run in parallel across workers.
-    """
+    """Validate every question in one worker task without blocking on child tasks."""
     ids = QUESTIONS.keys()
     if not ids:
         return {"status": "done", "validated": 0, "results": []}
 
-    job = group(validate_question_task.s(qid) for qid in ids)
-    result_group = job.apply_async()
-    results = result_group.join()  # Wait for all to finish
-
+    results = [_validate_question(qid) for qid in ids]
     summary = Counter(r.get("status") for r in results)
     return {
         "status": "done",

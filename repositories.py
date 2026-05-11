@@ -136,6 +136,16 @@ class QuestionStore:
                     setattr(row, key, value)
             session.commit()
 
+    def create(self, question: QuestionEntity) -> QuestionEntity:
+        row_kwargs = question_entity_to_row_kwargs(question)
+        row_kwargs.pop("id", None)
+        with SessionLocal() as session:
+            row = QuestionRow(**row_kwargs)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return question_row_to_entity(row)
+
     def __delitem__(self, question_id: int) -> None:
         with SessionLocal() as session:
             row = session.get(QuestionRow, question_id)
@@ -200,6 +210,21 @@ class PaperStore:
                     setattr(row, key, value)
                 row.questions = question_rows
             session.commit()
+
+    def create(self, paper: PaperEntity) -> PaperEntity:
+        question_rows = [
+            PaperQuestionRow(question_id=item.questionId, order_no=item.orderNo, marks=item.marks)
+            for item in sorted(paper.questions, key=lambda item: item.orderNo)
+        ]
+        row_kwargs = paper_entity_to_row_kwargs(paper)
+        row_kwargs.pop("id", None)
+        with SessionLocal() as session:
+            row = PaperRow(**row_kwargs)
+            row.questions = question_rows
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return paper_row_to_entity(row)
 
     def __delitem__(self, paper_id: int) -> None:
         with SessionLocal() as session:

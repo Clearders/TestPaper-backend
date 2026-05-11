@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import random
 import secrets
@@ -21,7 +23,7 @@ from sqlalchemy import String, cast as sql_cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app_factory import create_app
-from db import AuthTokenRow, PaperRow, QuestionRow, SessionLocal, UserRow, engine
+from db import AuthTokenRow, QuestionRow, SessionLocal, UserRow, engine
 from repositories import PAPERS, QUESTIONS, has_latex, question_row_to_entity
 from schemas import (
     AuthSession,
@@ -67,6 +69,8 @@ from settings import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cook
 from time_utils import as_aware_utc, now_utc
 
 SESSION_TTL = timedelta(hours=12)
+MAX_IMAGE_UPLOAD_BYTES = 30 * 1024 * 1024
+PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
 
 
 def normalize_question_payload(payload: QuestionBase, question_id: int, created_at: datetime | None = None) -> QuestionEntity:
@@ -158,7 +162,7 @@ class RealtimeConnectionManager:
 
         message = json.dumps({"event": event, "payload": payload}, default=str)
         stale: list[WebSocket] = []
-        for websocket in self._connections:
+        for websocket in list(self._connections):
             try:
                 await websocket.send_text(message)
             except RuntimeError:
@@ -307,6 +311,15 @@ def ensure_question_owner_access(question: QuestionEntity, current_user: UserEnt
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail={"code": "FORBIDDEN", "message": "You can only modify questions you own"},
+    )
+
+
+def ensure_can_create_question(current_user: UserEntity) -> None:
+    if current_user.role != UserRole.teacher:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "FORBIDDEN", "message": "Teacher accounts cannot create questions"},
     )
 
 
@@ -670,28 +683,12 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
     }
 
 
-NEXT_QUESTION_ID = 1
-NEXT_PAPER_ID = 1
-
-
-def refresh_next_ids() -> None:
-    global NEXT_QUESTION_ID, NEXT_PAPER_ID
-    if engine is None:
-        raise RuntimeError("DATABASE_URL is required before starting the app.")
-    with SessionLocal() as session:
-        next_question_id = session.scalar(select(func.max(QuestionRow.id))) or 0
-        next_paper_id = session.scalar(select(func.max(PaperRow.id))) or 0
-    NEXT_QUESTION_ID = next_question_id + 1
-    NEXT_PAPER_ID = next_paper_id + 1
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if engine is None:
         raise RuntimeError("DATABASE_URL is required before starting the app.")
     if engine.url.get_backend_name() == "sqlite":
         raise RuntimeError("SQLite is not supported. Set DATABASE_URL to a PostgreSQL database.")
-    refresh_next_ids()
     # Optionally pre-warm Redis (best-effort)
     try:
         from redis_client import get_redis
@@ -781,7 +778,7 @@ async def register(request: Request, response: Response, payload: RegisterReques
             username=payload.username,
             display_name=payload.displayName,
             password_hash=password_hash(payload.password),
-            role=UserRole.teacher.value,
+            role=UserRole.viewer.value,
             is_active=True,
             created_at=now,
             updated_at=now,
@@ -940,17 +937,33 @@ async def upload_image(
     payload: ImageUploadPayload,
     current_user: UserEntity = Depends(require_permission("questions:write")),
 ):
-    # Validate MIME type
-    allowed_mime_types = {"image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"}
-    if payload.mimeType not in allowed_mime_types:
+    if payload.mimeType != "image/png":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": f"Unsupported image type: {payload.mimeType}"},
+            detail={"code": "VALIDATION_ERROR", "message": "Only PNG images are supported"},
         )
-    # Generate a unique filename
-    ext = payload.filename.rsplit(".", 1)[-1].lower() if "." in payload.filename else "png"
-    safe_name = f"{uuid4().hex}.{ext}"
-    # In production, you'd upload to S3/cloud storage. For now, store as data URL.
+
+    try:
+        image_bytes = base64.b64decode(payload.data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": "Image data must be valid base64"},
+        ) from exc
+
+    if len(image_bytes) > MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={"code": "PAYLOAD_TOO_LARGE", "message": "PNG image must be 30MB or smaller"},
+        )
+
+    if not image_bytes.startswith(PNG_SIGNATURE):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": "Image data must be a PNG file"},
+        )
+
+    safe_name = f"{uuid4().hex}.png"
     data_url = f"data:{payload.mimeType};base64,{payload.data}"
     return envelope(
         ImageUploadResponse(url=data_url, filename=safe_name, mimeType=payload.mimeType).model_dump(mode="json"),
@@ -1040,12 +1053,10 @@ async def get_question(
 
 @app.post("/api/v1/questions", status_code=status.HTTP_201_CREATED)
 async def create_question(request: Request, payload: QuestionCreate, current_user: UserEntity = Depends(require_permission("questions:write"))):
-    global NEXT_QUESTION_ID
+    ensure_can_create_question(current_user)
     validate_question_payload(payload)
     payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
-    question = normalize_question_payload(payload, question_id=NEXT_QUESTION_ID)
-    QUESTIONS[NEXT_QUESTION_ID] = question
-    NEXT_QUESTION_ID += 1
+    question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
     await realtime.broadcast("question.created", {"question": question_to_dict(question), "actorId": current_user.id})
     return envelope(question_to_dict(question), request)
 
@@ -1080,12 +1091,11 @@ async def delete_question(question_id: int, current_user: UserEntity = Depends(r
 
 @app.post("/api/v1/papers", status_code=status.HTTP_201_CREATED)
 async def create_paper(request: Request, payload: PaperCreate, current_user: UserEntity = Depends(require_permission("papers:write"))):
-    global NEXT_PAPER_ID
     validate_unique_question_refs(payload.questions, "questions")
     for item in payload.questions:
         get_question_or_404(item.questionId)
     paper = PaperEntity(
-        id=NEXT_PAPER_ID,
+        id=0,
         title=payload.title,
         subject=payload.subject,
         duration=payload.duration,
@@ -1095,18 +1105,16 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Use
         createdAt=now_utc(),
         updatedAt=now_utc(),
     )
-    PAPERS[NEXT_PAPER_ID] = paper
-    NEXT_PAPER_ID += 1
+    paper = PAPERS.create(paper)
     await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
 @app.post("/api/v1/papers/generate", status_code=status.HTTP_201_CREATED)
 async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: UserEntity = Depends(require_permission("papers:write"))):
-    global NEXT_PAPER_ID
     generated = generate_paper_with_genetic_algorithm(payload)
     paper = PaperEntity(
-        id=NEXT_PAPER_ID,
+        id=0,
         title=payload.title,
         subject=payload.subject,
         duration=payload.duration,
@@ -1116,8 +1124,7 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
         createdAt=now_utc(),
         updatedAt=now_utc(),
     )
-    PAPERS[NEXT_PAPER_ID] = paper
-    NEXT_PAPER_ID += 1
+    paper = PAPERS.create(paper)
     paper_payload = paper_with_questions(paper)
     await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
     return envelope(
@@ -1263,7 +1270,15 @@ async def redis_health(request: Request):
             request,
         )
     except Exception as exc:
-        return envelope({"status": "disconnected", "error": str(exc)}, request)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=error_envelope(
+                "REDIS_UNAVAILABLE",
+                "Redis is unavailable",
+                request,
+                details={"status": "disconnected", "error": str(exc)},
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1319,7 +1334,7 @@ async def task_export_paper(
         args=[paper_id],
         kwargs={
             "question_order": question_order,
-            "include_answer": include_answer,
+            "include_answer": include_answer and has_permission(current_user, "answers:read"),
             "format": export_format,
         },
     )

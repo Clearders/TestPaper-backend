@@ -24,10 +24,6 @@ celery.conf.update(
     result_expires=3600,           # Keep results for 1 hour
 )
 
-# Auto-discover tasks in the tasks module
-celery.autodiscover_tasks(["tasks"], related_name="tasks", force=True)
-
-
 # ---------------------------------------------------------------------------
 # Optional base task class with retry + error handling helpers
 # ---------------------------------------------------------------------------
@@ -42,3 +38,7 @@ class BaseTask(Task):
         logger = logging.getLogger("celery.task")
         logger.error("Task %s[%s] failed: %s", self.name, task_id, exc, exc_info=einfo)
         super().on_failure(exc, task_id, args, kwargs, einfo)
+
+
+# Auto-discover tasks after BaseTask is defined so task modules can import it.
+celery.autodiscover_tasks(["tasks"], related_name=None, force=True)

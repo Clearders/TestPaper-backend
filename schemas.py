@@ -71,7 +71,6 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
     UserRole.teacher: {
         "questions:read",
         "questions:write",
-        "questions:delete",
         "answers:read",
         "papers:read",
         "papers:write",
