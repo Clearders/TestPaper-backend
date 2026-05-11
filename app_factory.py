@@ -21,5 +21,6 @@ def create_app(*, lifespan: Lifespan) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Content-Disposition", "X-Export-Format"],
     )
     return app

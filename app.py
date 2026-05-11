@@ -13,6 +13,7 @@ from itertools import chain
 from math import ceil
 from time import perf_counter
 from typing import Any, cast
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app_factory import create_app
 from db import AuthTokenRow, QuestionRow, SessionLocal, UserRow, engine
+from paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename
 from repositories import PAPERS, QUESTIONS, has_latex, question_row_to_entity
 from schemas import (
     AuthSession,
@@ -1250,6 +1252,30 @@ async def export_preview(
             "renderHint": payload.model_dump(),
         },
         request,
+    )
+
+
+@app.get("/api/v1/papers/{paper_id}/download")
+async def download_paper(
+    paper_id: int,
+    format: str = Query(default="docx", pattern="^docx$"),
+    questionOrder: QuestionOrder = QuestionOrder.paper,
+    includeAnswer: bool = True,
+    current_user: UserEntity = Depends(require_permission("papers:read")),
+):
+    paper = get_paper_or_404(paper_id)
+    questions = build_export_questions(paper, questionOrder, includeAnswer and has_permission(current_user, "answers:read"))
+    file_bytes = build_paper_docx(paper, questions, include_answer=includeAnswer and has_permission(current_user, "answers:read"))
+    filename = docx_filename(paper.title)
+    ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+
+    return Response(
+        content=file_bytes,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
+            "X-Export-Format": format,
+        },
     )
 
 
