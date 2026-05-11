@@ -70,8 +70,8 @@ alembic upgrade head
 |------|------|------|
 | `users` | 用户账户 | id, username, displayName, passwordHash, role, isActive |
 | `auth_tokens` | 认证令牌 | token, user_id, created_at, expires_at |
-| `questions` | 试题 | id, type, subject, difficulty, tags, text, options, answer, has_latex, source, images, scoreWeight, owner_id |
-| `papers` | 试卷 | id, title, subject, duration, totalMarks, status |
+| `questions` | 试题 | id, type, subject, difficulty, tags, text, options, answer, has_latex, source, images, essayBlankSpace, scoreWeight, owner_id |
+| `papers` | 试卷 | id, title, subject, duration, totalMarks, status, created_at, updated_at |
 | `paper_questions` | 试卷-试题关联 | paper_id, question_id, orderNo, marks |
 
 ### 预置数据
@@ -82,9 +82,9 @@ alembic upgrade head
 
 | 用户名 | 密码 | 角色 | 权限 |
 |--------|------|------|------|
-| `admin` | `admin123` | 管理员 | 完全权限，包括用户管理 |
-| `teacher` | `teacher123` | 教师 | 题目和试卷的读写权限 |
-| `viewer` | `viewer123` | 观察者 | 只读权限，无法查看答案 |
+| `admin` | `admin123` | 管理员 | 完全权限，包括用户管理、删除试题 |
+| `teacher` | `teacher123` | 教师 | 题目和试卷的读写权限，可查看答案，不可删除试题 |
+| `viewer` | `viewer123` | 观察者 | 题库和试卷只读权限，无法查看答案 |
 
 ## Redis 与 Celery（异步任务）
 
@@ -170,6 +170,7 @@ celery -A celery_app beat --loglevel=info
 | `DELETE` | `/{paper_id}/questions/{question_id}` | 从试卷移除试题 | `papers:write` |
 | `PUT` | `/{paper_id}/questions/order` | 调整试题排序 | `papers:write` |
 | `POST` | `/{paper_id}/export-preview` | 导出预览（同步，仅 json） | `papers:read` |
+| `GET` | `/{paper_id}/download` | 下载 DOCX 格式试卷 | `papers:read` |
 
 ### 图片上传 (`/api/v1/images/`)
 
@@ -198,11 +199,17 @@ celery -A celery_app beat --loglevel=info
 
 ### WebSocket (`/api/v1/ws`)
 
-实时事件推送，使用 Cookie/Bearer 认证。事件类型：
+WebSocket 实时通信端点，连接握手时携带 `testpapers_session` Cookie 进行认证。连接成功后服务端发送 `auth.connected` 事件，包含当前用户信息和服务器时间戳。客户端发送 `{"event": "ping"}` 时服务端返回 `{"event": "pong"}`。
+
+实时事件推送类型：
 - `auth.connected` — 连接成功
 - `question.created` / `question.updated` / `question.deleted`
 - `paper.created` / `paper.updated`
 - `paper.questions.added` / `paper.question.removed` / `paper.questions.reordered`
+
+## DOCX 导出
+
+`paper_docx.py` 模块支持将试卷导出为 Microsoft Word (.docx) 格式，支持试卷标题、试题文本、选项、LaTeX 公式、图片嵌入、解答题答题区域和答案展示。异步导出通过 Celery 任务队列执行，任务结果存储在 Redis 中。
 
 ### 健康检查 (`/api/v1/health/`)
 
@@ -225,7 +232,7 @@ celery -A celery_app beat --loglevel=info
 |------|------|:---:|:---:|:---:|
 | `questions:read` | 查看试题 | ✓ | ✓ | ✓ |
 | `questions:write` | 创建/编辑试题 | ✓ | ✓ | ✗ |
-| `questions:delete` | 删除试题 | ✓ | ✓ | ✗ |
+| `questions:delete` | 删除试题 | ✓ | ✗ | ✗ |
 | `answers:read` | 查看答案 | ✓ | ✓ | ✗ |
 | `papers:read` | 查看试卷 | ✓ | ✓ | ✓ |
 | `papers:write` | 创建/编辑试卷 | ✓ | ✓ | ✗ |
