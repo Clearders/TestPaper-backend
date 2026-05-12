@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, W
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import String, cast as sql_cast, func, or_, select
+from sqlalchemy import String, cast as sql_cast, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app_factory import create_app
@@ -1280,8 +1280,29 @@ async def download_paper(
 
 
 # ---------------------------------------------------------------------------
-# Redis health-check
+# Health checks
 # ---------------------------------------------------------------------------
+@app.get("/api/v1/health/postgres")
+async def postgres_health(request: Request):
+    try:
+        if engine is None:
+            raise RuntimeError("DATABASE_URL is not configured.")
+        start = perf_counter()
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+            version = connection.execute(text("SELECT version()")).scalar_one_or_none()
+        latency_ms = round((perf_counter() - start) * 1000, 2)
+        return envelope(
+            {"status": "connected", "postgresVersion": version, "latencyMs": latency_ms},
+            request,
+        )
+    except Exception as exc:
+        return envelope(
+            {"status": "disconnected", "error": str(exc)},
+            request,
+        )
+
+
 @app.get("/api/v1/health/redis")
 async def redis_health(request: Request):
     try:
@@ -1296,14 +1317,9 @@ async def redis_health(request: Request):
             request,
         )
     except Exception as exc:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=error_envelope(
-                "REDIS_UNAVAILABLE",
-                "Redis is unavailable",
-                request,
-                details={"status": "disconnected", "error": str(exc)},
-            ),
+        return envelope(
+            {"status": "disconnected", "error": str(exc)},
+            request,
         )
 
 
