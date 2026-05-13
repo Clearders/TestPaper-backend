@@ -171,6 +171,16 @@ class PaperBase(BaseModel):
     duration: int = Field(gt=0)
     totalMarks: int = Field(gt=0)
 
+    @model_validator(mode="after")
+    def normalize_paper_base(self):
+        self.title = self.title.strip()
+        self.subject = self.subject.strip()
+        if not self.title:
+            raise ValueError("title is required")
+        if not self.subject:
+            raise ValueError("subject is required")
+        return self
+
 
 class PaperCreate(PaperBase):
     questions: list[QuestionRef] = Field(default_factory=list)
@@ -211,6 +221,24 @@ class PaperGenerateRequest(PaperBase):
     optionalTags: list[str] = Field(default_factory=list)
     subjectStrict: bool = True
     algorithm: GeneticAlgorithmOptions = Field(default_factory=GeneticAlgorithmOptions)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_generation_input(cls, data):
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        for key in ("difficultyTargets", "typeTargets"):
+            if normalized.get(key) is None:
+                normalized[key] = {}
+        for key in ("requiredTags", "optionalTags"):
+            if normalized.get(key) is None:
+                normalized[key] = []
+        if normalized.get("algorithm") is None:
+            normalized.pop("algorithm", None)
+        if normalized.get("allocationMode") == GenerationAllocationMode.total_score.value:
+            normalized.pop("questionCount", None)
+        return normalized
 
     @model_validator(mode="after")
     def normalize_generation_request(self):

@@ -8,6 +8,7 @@ import secrets
 from collections import Counter
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import chain
 from math import ceil
@@ -351,6 +352,15 @@ QUESTION_SORT_COLUMNS = {
 }
 
 
+@dataclass(frozen=True)
+class GenerationQuestionFeatures:
+    difficulty: Difficulty
+    question_type: QuestionType
+    tags: frozenset[str]
+    subject: str
+    score_weight: float
+
+
 def question_has_tag(tag: str):
     tag_values = func.jsonb_array_elements_text(QuestionRow.tags).table_valued("value").alias("tag_values")
     return select(1).select_from(tag_values).where(func.lower(tag_values.c.value) == tag).exists()
@@ -390,9 +400,9 @@ def query_questions_page(
                 func.lower(QuestionRow.text).like(keyword_pattern),
                 func.lower(QuestionRow.subject).like(keyword_pattern),
                 func.lower(QuestionRow.answer).like(keyword_pattern),
-                func.lower(QuestionRow.source).like(keyword_pattern),
-                func.lower(sql_cast(QuestionRow.tags, String)).like(keyword_pattern),
-                func.lower(sql_cast(QuestionRow.options, String)).like(keyword_pattern),
+                func.lower(func.coalesce(QuestionRow.source, "")).like(keyword_pattern),
+                func.lower(func.coalesce(sql_cast(QuestionRow.tags, String), "")).like(keyword_pattern),
+                func.lower(func.coalesce(sql_cast(QuestionRow.options, String), "")).like(keyword_pattern),
             )
         )
     for tag in tag_filters:
@@ -524,7 +534,8 @@ def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionE
     if payload.subjectStrict:
         statement = statement.where(QuestionRow.subject == payload.subject)
     with SessionLocal() as session:
-        candidates = [question_row_to_entity(row) for row in session.scalars(statement)]
+        rows = session.scalars(statement.order_by(QuestionRow.id)).all()
+        candidates = [question_row_to_entity(row) for row in rows]
     required_count = payload.questionCount if payload.allocationMode == GenerationAllocationMode.question_count else 1
     if len(candidates) < (required_count or 1):
         raise HTTPException(
@@ -534,12 +545,38 @@ def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionE
                 "message": f"Need at least {required_count or 1} candidate questions, found {len(candidates)}.",
             },
         )
+    required_tags = {tag.lower() for tag in payload.requiredTags}
+    if required_tags:
+        candidate_tags = {tag.lower() for question in candidates for tag in question.tags}
+        missing_tags = sorted(required_tags - candidate_tags)
+        if missing_tags:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "INSUFFICIENT_QUESTIONS",
+                    "message": f"Candidate questions do not cover required tags: {', '.join(missing_tags)}.",
+                    "details": {"missingTags": missing_tags},
+                },
+            )
     return candidates
+
+
+def build_generation_features(questions: list[QuestionEntity]) -> dict[int, GenerationQuestionFeatures]:
+    return {
+        question.id: GenerationQuestionFeatures(
+            difficulty=question.difficulty,
+            question_type=question.type,
+            tags=frozenset(tag.lower() for tag in question.tags),
+            subject=question.subject,
+            score_weight=max(0.01, question.scoreWeight),
+        )
+        for question in questions
+    }
 
 
 def individual_fitness(
     individual: list[int],
-    question_by_id: dict[int, QuestionEntity],
+    question_features: dict[int, GenerationQuestionFeatures],
     difficulty_targets: dict[Difficulty, int],
     type_targets: dict[QuestionType, int],
     required_tags: set[str],
@@ -552,12 +589,12 @@ def individual_fitness(
     subjects: set[str] = set()
     score_weight_total = 0.0
     for question_id in individual:
-        question = question_by_id[question_id]
-        difficulty_counts[question.difficulty] += 1
-        type_counts[question.type] += 1
-        subjects.add(question.subject)
-        tags.update(tag.lower() for tag in question.tags)
-        score_weight_total += max(0.01, question.scoreWeight)
+        features = question_features[question_id]
+        difficulty_counts[features.difficulty] += 1
+        type_counts[features.question_type] += 1
+        subjects.add(features.subject)
+        tags.update(features.tags)
+        score_weight_total += features.score_weight
 
     penalty = 0.0
     for difficulty, target in difficulty_targets.items():
@@ -608,6 +645,7 @@ def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_
 def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict[str, Any]:
     candidates = build_generation_candidates(payload)
     question_by_id = {question.id: question for question in candidates}
+    question_features = build_generation_features(candidates)
     candidate_ids = list(question_by_id)
     rng = random.Random(payload.algorithm.randomSeed)
     question_count = resolve_generation_question_count(payload, candidates)
@@ -624,19 +662,57 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
     required_tags = {tag.lower() for tag in payload.requiredTags}
     optional_tags = {tag.lower() for tag in payload.optionalTags} - required_tags
     population_size = max(payload.algorithm.populationSize, payload.algorithm.elitismCount + payload.algorithm.tournamentSize)
+    population_size = min(population_size, max(1, len(candidate_ids) * 8))
     target_score_weight = payload.totalMarks if payload.allocationMode == GenerationAllocationMode.total_score else None
+
+    if len(candidates) == question_count:
+        selected_questions = candidates
+        marks = distribute_marks(selected_questions, payload.totalMarks)
+        return {
+            "paperQuestions": [
+                PaperQuestion(questionId=question.id, orderNo=index + 1, marks=marks[index])
+                for index, question in enumerate(selected_questions)
+            ],
+            "selectedQuestions": selected_questions,
+            "diagnostics": {
+                "fitness": 1000,
+                "candidateCount": len(candidates),
+                "questionCount": question_count,
+                "allocationMode": payload.allocationMode.value,
+                "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
+                "marksActual": sum(marks),
+                "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
+                "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
+                "typeTargets": {key.value: value for key, value in type_targets.items()},
+                "typeActual": dict(Counter(question.type.value for question in selected_questions)),
+                "requiredTags": sorted(required_tags),
+                "coveredRequiredTags": sorted(required_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
+                "optionalTags": sorted(optional_tags),
+                "coveredOptionalTags": sorted(optional_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
+                "algorithm": payload.algorithm.model_dump(),
+                "generationsRun": 0,
+            },
+        }
 
     population = [rng.sample(candidate_ids, question_count) for _ in range(population_size)]
     best = population[0]
     best_score = float("-inf")
+    generations_without_improvement = 0
+    generations_run = 0
 
     def score(individual: list[int]) -> float:
-        return individual_fitness(individual, question_by_id, difficulty_targets, type_targets, required_tags, optional_tags, target_score_weight)
+        return individual_fitness(individual, question_features, difficulty_targets, type_targets, required_tags, optional_tags, target_score_weight)
 
     for generation in range(payload.algorithm.generations):
+        generations_run = generation + 1
         ranked = sorted(((score(individual), individual) for individual in population), key=lambda item: item[0], reverse=True)
         if ranked[0][0] > best_score:
             best_score, best = ranked[0][0], ranked[0][1][:]
+            generations_without_improvement = 0
+        else:
+            generations_without_improvement += 1
+        if generations_without_improvement >= 30 and generation >= 50:
+            break
 
         elite_count = min(payload.algorithm.elitismCount, len(ranked))
         next_population = [individual[:] for _, individual in ranked[:elite_count]]
@@ -677,6 +753,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
         "optionalTags": sorted(optional_tags),
         "coveredOptionalTags": sorted(optional_tags & {tag.lower() for question in selected_questions for tag in question.tags}),
         "algorithm": payload.algorithm.model_dump(),
+        "generationsRun": generations_run,
     }
     return {
         "paperQuestions": paper_questions,
