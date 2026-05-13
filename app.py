@@ -532,7 +532,7 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionEntity]:
     statement = select(QuestionRow)
     if payload.subjectStrict:
-        statement = statement.where(QuestionRow.subject == payload.subject)
+        statement = statement.where(func.lower(QuestionRow.subject) == payload.subject.lower())
     with SessionLocal() as session:
         rows = session.scalars(statement.order_by(QuestionRow.id)).all()
         candidates = [question_row_to_entity(row) for row in rows]

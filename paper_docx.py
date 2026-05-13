@@ -65,6 +65,46 @@ _MATH_SYMBOLS = {
     "sum": "\u2211",
     "prod": "\u220f",
     "int": "\u222b",
+    "lim": "lim",
+    "log": "log",
+    "ln": "ln",
+    "sin": "sin",
+    "cos": "cos",
+    "tan": "tan",
+}
+_IGNORED_MATH_STYLE_COMMANDS = {
+    "displaystyle",
+    "textstyle",
+    "scriptstyle",
+    "scriptscriptstyle",
+}
+_TEXT_MATH_COMMANDS = {
+    "text",
+    "textm",
+    "textrm",
+    "mathrm",
+    "mathbf",
+    "mathit",
+    "mathsf",
+    "mathtt",
+    "operatorname",
+}
+_MATH_SPACING_COMMANDS = {
+    ",": " ",
+    ";": " ",
+    ":": " ",
+    " ": " ",
+    "!": "",
+}
+_LATEX_TEXT_ESCAPES = {
+    "\\\\": "\\",
+    "\\{": "{",
+    "\\}": "}",
+    "\\$": "$",
+    "\\%": "%",
+    "\\&": "&",
+    "\\#": "#",
+    "\\_": "_",
 }
 
 
@@ -264,6 +304,9 @@ class _LatexMathParser:
             command_end += 1
         command = self.source[command_start:command_end]
         if not command and command_end < self.length:
+            escaped_command = self.source[command_end]
+            if escaped_command in _MATH_SPACING_COMMANDS:
+                return _math_text(_MATH_SPACING_COMMANDS[escaped_command]), command_end + 1
             return _math_text(self.source[command_end]), command_end + 1
 
         handlers: dict[str, Callable[[int], tuple[str, int]]] = {
@@ -274,9 +317,13 @@ class _LatexMathParser:
         }
         if command in handlers:
             return handlers[command](command_end)
+        if command in _IGNORED_MATH_STYLE_COMMANDS:
+            return "", self._skip_spaces(command_end)
+        if command in _TEXT_MATH_COMMANDS:
+            return self._parse_text_command(command_end)
         if command in ("left", "right"):
             return "", command_end
-        if command in ("quad", "qquad", ",", ";", ":"):
+        if command in ("quad", "qquad"):
             return _math_text(" "), command_end
         if command in _MATH_SYMBOLS:
             return _math_text(_MATH_SYMBOLS[command]), command_end
@@ -290,6 +337,41 @@ class _LatexMathParser:
     def _parse_sqrt(self, position: int) -> tuple[str, int]:
         radicand, position = self._parse_required_group(position)
         return f"<m:rad><m:deg/><m:e>{radicand}</m:e></m:rad>", position
+
+    def _parse_text_command(self, position: int) -> tuple[str, int]:
+        position = self._skip_spaces(position)
+        if position >= self.length:
+            return _math_text(""), position
+        if self.source[position] == "{":
+            text, position = self._read_balanced_text(position)
+            return _math_text(_plain_latex_text(text)), position
+
+        end = position
+        while end < self.length and self.source[end] not in "\\{}^_":
+            if self.source[end].isspace():
+                break
+            end += 1
+        if end == position:
+            return self._parse_atom(position)
+        return _math_text(_plain_latex_text(self.source[position:end])), end
+
+    def _read_balanced_text(self, position: int) -> tuple[str, int]:
+        depth = 0
+        start = position + 1
+        index = position
+        while index < self.length:
+            char = self.source[index]
+            if char == "\\":
+                index += 2
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.source[start:index], index + 1
+            index += 1
+        return self.source[start:], self.length
 
     def _parse_required_group(self, position: int) -> tuple[str, int]:
         position = self._skip_spaces(position)
@@ -323,6 +405,14 @@ class _LatexMathParser:
         while position < self.length and self.source[position].isspace():
             position += 1
         return position
+
+
+def _plain_latex_text(text: str) -> str:
+    plain = text
+    for latex_escape, replacement in _LATEX_TEXT_ESCAPES.items():
+        plain = plain.replace(latex_escape, replacement)
+    plain = plain.replace("~", " ")
+    return re.sub(r"\\([A-Za-z]+)", r"\1", plain)
 
 
 def _image_paragraph(relationship_id: str, image_index: int, image_bytes: bytes) -> str:
