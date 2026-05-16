@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import chain
 from math import ceil
+from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 from urllib.parse import quote
@@ -20,6 +21,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy import String, cast as sql_cast, func, or_, select, text
 from sqlalchemy.orm import Session
@@ -73,6 +75,7 @@ from time_utils import as_aware_utc, now_utc
 SESSION_TTL = timedelta(hours=12)
 MAX_IMAGE_UPLOAD_BYTES = 30 * 1024 * 1024
 PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
+IMAGE_UPLOAD_DIR = Path(__file__).with_name("uploaded-images")
 
 
 def normalize_question_payload(payload: QuestionBase, question_id: int, created_at: datetime | None = None) -> QuestionEntity:
@@ -316,15 +319,6 @@ def ensure_question_owner_access(question: QuestionEntity, current_user: UserEnt
     )
 
 
-def ensure_can_create_question(current_user: UserEntity) -> None:
-    if current_user.role != UserRole.teacher:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={"code": "FORBIDDEN", "message": "Teacher accounts cannot create questions"},
-    )
-
-
 def validate_question_payload(payload: QuestionBase) -> None:
     if payload.type in (QuestionType.choice, QuestionType.true_false) and not payload.options:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "VALIDATION_ERROR", "message": f"{payload.type.value} questions require options"})
@@ -388,6 +382,7 @@ def query_questions_page(
     sort_order: SortOrder = SortOrder.desc,
     page: int = 1,
     page_size: int = 20,
+    search_answers: bool = False,
 ) -> dict[str, Any]:
     tag_filters = [item.strip().lower() for item in tags.split(",") if item.strip()] if tags else []
     keyword = q.lower().strip() if q else None
@@ -405,16 +400,16 @@ def query_questions_page(
         statement = statement.where(QuestionRow.owner_id == owner_id)
     if keyword:
         keyword_pattern = f"%{keyword}%"
-        statement = statement.where(
-            or_(
-                func.lower(QuestionRow.text).like(keyword_pattern),
-                func.lower(QuestionRow.subject).like(keyword_pattern),
-                func.lower(QuestionRow.answer).like(keyword_pattern),
-                func.lower(func.coalesce(QuestionRow.source, "")).like(keyword_pattern),
-                func.lower(func.coalesce(sql_cast(QuestionRow.tags, String), "")).like(keyword_pattern),
-                func.lower(func.coalesce(sql_cast(QuestionRow.options, String), "")).like(keyword_pattern),
-            )
-        )
+        search_conditions = [
+            func.lower(QuestionRow.text).like(keyword_pattern),
+            func.lower(QuestionRow.subject).like(keyword_pattern),
+            func.lower(func.coalesce(QuestionRow.source, "")).like(keyword_pattern),
+            func.lower(func.coalesce(sql_cast(QuestionRow.tags, String), "")).like(keyword_pattern),
+            func.lower(func.coalesce(sql_cast(QuestionRow.options, String), "")).like(keyword_pattern),
+        ]
+        if search_answers:
+            search_conditions.append(func.lower(QuestionRow.answer).like(keyword_pattern))
+        statement = statement.where(or_(*search_conditions))
     for tag in tag_filters:
         statement = statement.where(question_has_tag(tag))
 
@@ -766,6 +761,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("DATABASE_URL is required before starting the app.")
     if engine.url.get_backend_name() == "sqlite":
         raise RuntimeError("SQLite is not supported. Set DATABASE_URL to a PostgreSQL database.")
+    IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     # Optionally pre-warm Redis (best-effort)
     try:
         from redis_client import get_redis
@@ -784,6 +780,12 @@ async def lifespan(app: FastAPI):
 
 
 app = create_app(lifespan=lifespan)
+IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/api/v1/images/files",
+    StaticFiles(directory=str(IMAGE_UPLOAD_DIR)),
+    name="uploaded_images",
+)
 
 
 
@@ -1041,9 +1043,9 @@ async def upload_image(
         )
 
     safe_name = f"{uuid4().hex}.png"
-    data_url = f"data:{payload.mimeType};base64,{payload.data}"
+    (IMAGE_UPLOAD_DIR / safe_name).write_bytes(image_bytes)
     return envelope(
-        ImageUploadResponse(url=data_url, filename=safe_name, mimeType=payload.mimeType).model_dump(mode="json"),
+        ImageUploadResponse(url=f"/api/v1/images/files/{safe_name}", filename=safe_name, mimeType=payload.mimeType).model_dump(mode="json"),
         request,
     )
 
@@ -1065,6 +1067,7 @@ async def list_questions(
     sortOrder: SortOrder = SortOrder.desc,
     current_user: UserEntity = Depends(require_permission("questions:read")),
 ):
+    can_read_answers = has_permission(current_user, "answers:read")
     page_data = query_questions_page(
         q=q,
         subject=subject,
@@ -1077,8 +1080,8 @@ async def list_questions(
         sort_order=sortOrder,
         page=page,
         page_size=pageSize,
+        search_answers=can_read_answers,
     )
-    can_read_answers = has_permission(current_user, "answers:read")
     page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
 
@@ -1099,6 +1102,7 @@ async def list_my_questions(
     sortOrder: SortOrder = SortOrder.desc,
     current_user: UserEntity = Depends(require_permission("questions:read")),
 ):
+    can_read_answers = has_permission(current_user, "answers:read")
     page_data = query_questions_page(
         q=q,
         subject=subject,
@@ -1111,8 +1115,8 @@ async def list_my_questions(
         sort_order=sortOrder,
         page=page,
         page_size=pageSize,
+        search_answers=can_read_answers,
     )
-    can_read_answers = has_permission(current_user, "answers:read")
     page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
 
@@ -1130,11 +1134,10 @@ async def get_question(
 
 @app.post("/api/v1/questions", status_code=status.HTTP_201_CREATED)
 async def create_question(request: Request, payload: QuestionCreate, current_user: UserEntity = Depends(require_permission("questions:write"))):
-    ensure_can_create_question(current_user)
     validate_question_payload(payload)
     payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
-    await realtime.broadcast("question.created", {"question": question_to_dict(question), "actorId": current_user.id})
+    await realtime.broadcast("question.created", {"question": question_to_dict(question, include_answer=False), "actorId": current_user.id})
     return envelope(question_to_dict(question), request)
 
 
@@ -1153,7 +1156,7 @@ async def update_question(
         payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     updated = apply_question_update(question, payload)
     QUESTIONS[question_id] = updated
-    await realtime.broadcast("question.updated", {"question": question_to_dict(updated), "actorId": current_user.id})
+    await realtime.broadcast("question.updated", {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id})
     return envelope(question_to_dict(updated), request)
 
 

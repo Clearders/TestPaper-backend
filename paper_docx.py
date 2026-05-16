@@ -9,12 +9,14 @@ from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 from xml.sax.saxutils import escape
 
 from schemas import PaperEntity
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("ExamPaperTemplate.docx")
+DEFAULT_IMAGE_UPLOAD_DIR = Path(__file__).with_name("uploaded-images")
 _DOCX_NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
@@ -569,13 +571,15 @@ def _image_paragraph(relationship_id: str, image_index: int, image_bytes: bytes)
 
 def _add_image_relationship(url: str, images: list[tuple[str, bytes]], relationships: list[str]) -> str | None:
     prefix = "data:image/png;base64,"
-    if not url.startswith(prefix):
-        return None
-
-    try:
-        image_bytes = base64.b64decode(url[len(prefix):], validate=True)
-    except (binascii.Error, ValueError):
-        return None
+    if url.startswith(prefix):
+        try:
+            image_bytes = base64.b64decode(url[len(prefix):], validate=True)
+        except (binascii.Error, ValueError):
+            return None
+    else:
+        image_bytes = _read_uploaded_image(url)
+        if image_bytes is None:
+            return None
 
     images.append((url, image_bytes))
     relationship_id = f"rIdImage{len(images)}"
@@ -585,6 +589,23 @@ def _add_image_relationship(url: str, images: list[tuple[str, bytes]], relations
         f'Target="media/image{len(images)}.png"/>'
     )
     return relationship_id
+
+
+def _read_uploaded_image(url: str) -> bytes | None:
+    parsed = urlsplit(url)
+    path = unquote(parsed.path or url)
+    prefix = "/api/v1/images/files/"
+    if not path.startswith(prefix):
+        return None
+
+    filename = Path(path[len(prefix):]).name
+    if not filename.lower().endswith(".png"):
+        return None
+
+    image_path = DEFAULT_IMAGE_UPLOAD_DIR / filename
+    if not image_path.is_file():
+        return None
+    return image_path.read_bytes()
 
 
 def _image_dimensions_emu(image_bytes: bytes) -> tuple[int, int]:

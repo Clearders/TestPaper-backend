@@ -11,9 +11,15 @@ venv/
 
 # Local databases and environment
 *.db
+uploaded-images/
 .env
 .env.*
 !.env.example
+
+# Logs and local process files
+logs/
+*.log
+*.pid
 
 # IDE
 .idea/
