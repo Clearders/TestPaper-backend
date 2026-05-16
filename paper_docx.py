@@ -7,12 +7,14 @@ import struct
 import zipfile
 from collections.abc import Callable
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
 from schemas import PaperEntity
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("ExamPaperTemplate.docx")
 _DOCX_NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
@@ -25,6 +27,8 @@ _EMU_PER_INCH = 914400
 _PX_PER_INCH = 96
 _MAX_IMAGE_WIDTH_EMU = int(5.8 * _EMU_PER_INCH)
 _LATEX_SEGMENT_RE = re.compile(r"(\$\$(?P<block>.+?)\$\$|\$(?P<inline>.+?)\$)", re.DOTALL)
+_TEMPLATE_TITLE_TEXT = "2020-2021 Academic Year First Semester Final Exam Paper"
+_PNG_CONTENT_TYPE = '<Default Extension="png" ContentType="image/png"/>'
 _MATH_SYMBOLS = {
     "alpha": "\u03b1",
     "beta": "\u03b2",
@@ -119,15 +123,52 @@ def build_paper_docx(
     questions: list[dict[str, Any]],
     *,
     include_answer: bool,
+    template_path: Path | str | None = None,
 ) -> bytes:
+    template = Path(template_path) if template_path is not None else DEFAULT_TEMPLATE_PATH
+    use_template = template.is_file()
     images: list[tuple[str, bytes]] = []
     image_relationships: list[str] = []
-    paragraphs: list[str] = [
-        _paragraph(paper.title, bold=True, size=32, align="center"),
-        _paragraph(f"Subject: {paper.subject}", size=22, align="center"),
-        _paragraph(f"Duration: {paper.duration} minutes    Total Marks: {paper.totalMarks}", size=22, align="center"),
-        _paragraph(""),
-    ]
+    paragraphs: list[str] = []
+    if not use_template:
+        paragraphs.extend(
+            [
+                _paragraph(paper.title, bold=True, size=32, align="center"),
+            ]
+        )
+    paragraphs.extend(
+        [
+            _paragraph(
+                f"Subject: {paper.subject}    Duration: {paper.duration} minutes    Total Marks: {paper.totalMarks}",
+                size=22,
+                align="center",
+            ),
+            _paragraph(""),
+        ]
+    )
+
+    paragraphs.extend(
+        _question_paragraphs(
+            questions,
+            include_answer=include_answer,
+            images=images,
+            image_relationships=image_relationships,
+        )
+    )
+    document_body_xml = "".join(paragraphs)
+    if use_template:
+        return _build_docx_from_template(template, paper.title, document_body_xml, images, image_relationships)
+    return _build_standalone_docx(document_body_xml, images, image_relationships)
+
+
+def _question_paragraphs(
+    questions: list[dict[str, Any]],
+    *,
+    include_answer: bool,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+) -> list[str]:
+    paragraphs: list[str] = []
 
     for index, question in enumerate(questions, start=1):
         marks_text = f" ({question['marks']} marks)" if question.get("marks") else ""
@@ -157,11 +198,19 @@ def build_paper_docx(
 
         paragraphs.append(_paragraph(""))
 
+    return paragraphs
+
+
+def _build_standalone_docx(
+    document_body_xml: str,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+) -> bytes:
     document_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f"<w:document {_DOCX_NS}>"
         "<w:body>"
-        f"{''.join(paragraphs)}"
+        f"{document_body_xml}"
         '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
         '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
         "</w:sectPr>"
@@ -179,6 +228,82 @@ def build_paper_docx(
             archive.writestr(f"word/media/image{index}.png", image_bytes)
 
     return buffer.getvalue()
+
+
+def _build_docx_from_template(
+    template_path: Path,
+    paper_title: str,
+    document_body_xml: str,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(template_path, "r") as template_archive:
+        document_xml = template_archive.read("word/document.xml").decode("utf-8")
+        document_xml = _replace_template_title(document_xml, paper_title)
+        document_xml = _ensure_document_namespaces(document_xml)
+        document_xml = _insert_before_final_section(document_xml, document_body_xml)
+
+        relationships_xml = template_archive.read("word/_rels/document.xml.rels").decode("utf-8")
+        relationships_xml = _append_document_relationships(relationships_xml, image_relationships)
+
+        content_types_xml = template_archive.read("[Content_Types].xml").decode("utf-8")
+        content_types_xml = _ensure_png_content_type(content_types_xml, images)
+
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as output_archive:
+            for entry in template_archive.infolist():
+                if entry.filename in {"word/document.xml", "word/_rels/document.xml.rels", "[Content_Types].xml"}:
+                    continue
+                output_archive.writestr(entry, template_archive.read(entry.filename))
+
+            output_archive.writestr("[Content_Types].xml", content_types_xml)
+            output_archive.writestr("word/document.xml", document_xml)
+            output_archive.writestr("word/_rels/document.xml.rels", relationships_xml)
+            for index, (_, image_bytes) in enumerate(images, start=1):
+                output_archive.writestr(f"word/media/image{index}.png", image_bytes)
+
+    return buffer.getvalue()
+
+
+def _replace_template_title(document_xml: str, paper_title: str) -> str:
+    return document_xml.replace(f"<w:t>{escape(_TEMPLATE_TITLE_TEXT)}</w:t>", f"<w:t>{escape(paper_title)}</w:t>", 1)
+
+
+def _ensure_document_namespaces(document_xml: str) -> str:
+    namespace_attrs = {
+        "xmlns:a": 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"',
+        "xmlns:pic": 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"',
+    }
+    document_tag_match = re.search(r"<w:document\b[^>]*>", document_xml)
+    if document_tag_match is None:
+        return document_xml
+
+    document_tag = document_tag_match.group(0)
+    additions = [attribute for prefix, attribute in namespace_attrs.items() if prefix not in document_tag]
+    if not additions:
+        return document_xml
+
+    updated_tag = document_tag[:-1] + " " + " ".join(additions) + ">"
+    return document_xml[:document_tag_match.start()] + updated_tag + document_xml[document_tag_match.end():]
+
+
+def _insert_before_final_section(document_xml: str, document_body_xml: str) -> str:
+    final_section_match = re.search(r"<w:sectPr\b.*?</w:sectPr>\s*</w:body>", document_xml, re.DOTALL)
+    if final_section_match is not None:
+        return document_xml[:final_section_match.start()] + document_body_xml + document_xml[final_section_match.start():]
+    return document_xml.replace("</w:body>", f"{document_body_xml}</w:body>", 1)
+
+
+def _append_document_relationships(relationships_xml: str, image_relationships: list[str]) -> str:
+    if not image_relationships:
+        return relationships_xml
+    return relationships_xml.replace("</Relationships>", f"{''.join(image_relationships)}</Relationships>", 1)
+
+
+def _ensure_png_content_type(content_types_xml: str, images: list[tuple[str, bytes]]) -> str:
+    if not images or 'Extension="png"' in content_types_xml:
+        return content_types_xml
+    return content_types_xml.replace("</Types>", f"{_PNG_CONTENT_TYPE}</Types>", 1)
 
 
 def _paragraph(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, align: str | None = None) -> str:
