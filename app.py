@@ -542,22 +542,25 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
     return normalized
 
 
-def build_generation_candidates(payload: PaperGenerateRequest) -> list[QuestionEntity]:
+def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
     subject = payload.subject.strip()
     statement = select(QuestionRow).where(
         func.lower(QuestionRow.subject) == subject.lower(),
         QuestionRow.type == payload.questionType.value,
     )
+    if owner_id is not None:
+        statement = statement.where(QuestionRow.owner_id == owner_id)
     with SessionLocal() as session:
         rows = session.scalars(statement.order_by(QuestionRow.id)).all()
         candidates = [question_row_to_entity(row) for row in rows]
     if not candidates:
+        source_message = " in your question bank" if owner_id is not None else ""
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least 1 {payload.questionType.value} question for {subject}, found 0.",
-                "details": {"subject": subject, "questionType": payload.questionType.value, "candidateCount": 0},
+                "message": f"Need at least 1 {payload.questionType.value} question for {subject}{source_message}, found 0.",
+                "details": {"subject": subject, "questionType": payload.questionType.value, "candidateCount": 0, "ownQuestionsOnly": owner_id is not None},
             },
         )
     return candidates
@@ -644,8 +647,8 @@ def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_
     return mutated
 
 
-def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict[str, Any]:
-    candidates = build_generation_candidates(payload)
+def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_id: int | None = None) -> dict[str, Any]:
+    candidates = build_generation_candidates(payload, owner_id=owner_id)
     question_by_id = {question.id: question for question in candidates}
     question_features = build_generation_features(candidates)
     candidate_ids = list(question_by_id)
@@ -681,6 +684,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
                 "fitness": 1000,
                 "candidateCount": len(candidates),
                 "questionCount": question_count,
+                "ownQuestionsOnly": owner_id is not None,
                 "difficultyCoefficient": payload.difficultyCoefficient,
                 "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
                 "marksActual": sum(marks),
@@ -739,6 +743,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest) -> dict
         "fitness": round(best_score, 2),
         "candidateCount": len(candidates),
         "questionCount": question_count,
+        "ownQuestionsOnly": owner_id is not None,
         "difficultyCoefficient": payload.difficultyCoefficient,
         "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
         "marksActual": sum(marks),
@@ -1192,7 +1197,8 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Use
 
 @app.post("/api/v1/papers/generate", status_code=status.HTTP_201_CREATED)
 async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: UserEntity = Depends(require_permission("papers:write"))):
-    generated = generate_paper_with_genetic_algorithm(payload)
+    owner_id = current_user.id if payload.ownQuestionsOnly else None
+    generated = generate_paper_with_genetic_algorithm(payload, owner_id=owner_id)
     paper = PaperEntity(
         id=0,
         title=payload.title,

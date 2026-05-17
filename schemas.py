@@ -200,6 +200,7 @@ class PaperEntity(PaperBase):
 class PaperGenerateRequest(PaperBase):
     difficultyCoefficient: float = Field(ge=0, le=1)
     questionType: QuestionType
+    ownQuestionsOnly: bool = False
 
     @model_validator(mode="after")
     def normalize_generation_request(self):
