@@ -27,7 +27,15 @@ _DOCX_NS = (
 )
 _EMU_PER_INCH = 914400
 _PX_PER_INCH = 96
+_TWIPS_PER_INCH = 1440
+_TWIPS_PER_PX = _TWIPS_PER_INCH // _PX_PER_INCH
 _MAX_IMAGE_WIDTH_EMU = int(5.8 * _EMU_PER_INCH)
+_DEFAULT_ESSAY_BLANK_LINES = 6
+_DEFAULT_ESSAY_BLANK_LINE_HEIGHT = 28
+_MIN_ESSAY_BLANK_LINES = 1
+_MAX_ESSAY_BLANK_LINES = 20
+_MIN_ESSAY_BLANK_LINE_HEIGHT = 20
+_MAX_ESSAY_BLANK_LINE_HEIGHT = 48
 _LATEX_SEGMENT_RE = re.compile(r"(\$\$(?P<block>.+?)\$\$|\$(?P<inline>.+?)\$)", re.DOTALL)
 _TEMPLATE_TITLE_TEXT = "2020-2021 Academic Year First Semester Final Exam Paper"
 _PNG_CONTENT_TYPE = '<Default Extension="png" ContentType="image/png"/>'
@@ -190,10 +198,7 @@ def _question_paragraphs(
                     paragraphs.append(_paragraph(str(image["caption"]), italic=True, size=18, align="center"))
 
         if question.get("type") == "essay":
-            blank_space = question.get("essayBlankSpace") or {}
-            line_count = max(1, min(20, int(blank_space.get("lines") or 6)))
-            for _ in range(line_count):
-                paragraphs.append(_paragraph("_" * 78, size=20))
+            paragraphs.append(_essay_answer_space(question.get("essayBlankSpace")))
 
         if include_answer and "answer" in question:
             paragraphs.append(_paragraph_with_latex(f"Answer: {question.get('answer', '')}", italic=True, size=21))
@@ -310,6 +315,41 @@ def _ensure_png_content_type(content_types_xml: str, images: list[tuple[str, byt
 
 def _paragraph(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, align: str | None = None) -> str:
     return _paragraph_from_runs(_text_runs(text, _run_props_xml(bold=bold, italic=italic, size=size)), align=align)
+
+
+def _essay_answer_space(blank_space: Any) -> str:
+    height_twips = _essay_blank_height_twips(blank_space)
+    return (
+        "<w:p>"
+        f'<w:pPr><w:spacing w:before="0" w:after="0" w:line="{height_twips}" w:lineRule="exact"/></w:pPr>'
+        '<w:r><w:t xml:space="preserve"> </w:t></w:r>'
+        "</w:p>"
+    )
+
+
+def _essay_blank_height_twips(blank_space: Any) -> int:
+    source = blank_space if isinstance(blank_space, dict) else {}
+    lines = _bounded_int(
+        source.get("lines"),
+        _DEFAULT_ESSAY_BLANK_LINES,
+        _MIN_ESSAY_BLANK_LINES,
+        _MAX_ESSAY_BLANK_LINES,
+    )
+    line_height = _bounded_int(
+        source.get("lineHeight"),
+        _DEFAULT_ESSAY_BLANK_LINE_HEIGHT,
+        _MIN_ESSAY_BLANK_LINE_HEIGHT,
+        _MAX_ESSAY_BLANK_LINE_HEIGHT,
+    )
+    return lines * line_height * _TWIPS_PER_PX
+
+
+def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return max(minimum, min(maximum, parsed))
 
 
 def _paragraph_with_latex(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, align: str | None = None) -> str:
