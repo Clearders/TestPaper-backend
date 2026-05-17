@@ -7,10 +7,10 @@ from typing import cast
 from fastapi import Response
 from sqlalchemy.orm import Session
 
+from testpaper_backend.config import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import AuthSession
 from testpaper_backend.security import auth_error, user_row_to_entity
-from testpaper_backend.config import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
 SESSION_TTL = timedelta(hours=12)

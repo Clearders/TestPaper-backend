@@ -22,7 +22,13 @@ from testpaper_backend.schemas import (
 )
 from testpaper_backend.security import has_permission
 from testpaper_backend.services.paper_generation import generate_paper_with_genetic_algorithm
-from testpaper_backend.services.papers import build_export_questions, get_paper_or_404, paper_to_dict, paper_with_questions, validate_unique_question_refs
+from testpaper_backend.services.papers import (
+    build_export_questions,
+    get_paper_or_404,
+    paper_to_dict,
+    paper_with_questions,
+    validate_unique_question_refs,
+)
 from testpaper_backend.services.questions import get_question_or_404
 from testpaper_backend.services.realtime import realtime
 from testpaper_backend.time_utils import now_utc

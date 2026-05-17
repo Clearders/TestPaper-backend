@@ -20,7 +20,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=os.getenv("SMOKE_API_BASE", "http://127.0.0.1:8000/api/v1"))
     parser.add_argument("--username", default=os.getenv("SMOKE_USERNAME", "testpaper-smoke-admin"))
     parser.add_argument("--password", default=os.getenv("SMOKE_PASSWORD") or secrets.token_urlsafe(18))
-    parser.add_argument("--no-seed-user", action="store_true", help="Use an existing API user instead of seeding an admin through DATABASE_URL.")
+    parser.add_argument(
+        "--no-seed-user",
+        action="store_true",
+        help="Use an existing API user instead of seeding an admin through DATABASE_URL.",
+    )
     return parser.parse_args()
 
 

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class QuestionType(str, Enum):
+class QuestionType(StrEnum):
     choice = "choice"
     true_false = "true_false"
     blank = "blank"
@@ -15,28 +15,28 @@ class QuestionType(str, Enum):
     essay = "essay"
 
 
-class Difficulty(str, Enum):
+class Difficulty(StrEnum):
     easy = "easy"
     medium = "medium"
     hard = "hard"
 
 
-class SortOrder(str, Enum):
+class SortOrder(StrEnum):
     asc = "asc"
     desc = "desc"
 
 
-class PaperStatus(str, Enum):
+class PaperStatus(StrEnum):
     draft = "draft"
     published = "published"
 
 
-class QuestionOrder(str, Enum):
+class QuestionOrder(StrEnum):
     paper = "paper"
     categorized = "categorized"
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     admin = "admin"
     teacher = "teacher"
     viewer = "viewer"

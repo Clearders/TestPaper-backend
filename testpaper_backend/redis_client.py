@@ -8,7 +8,6 @@ from redis import Redis
 
 from testpaper_backend.config import get_redis_url
 
-
 _redis_client: Redis | None = None
 
 

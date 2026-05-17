@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import importlib
-import sys
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
-schemas_stub = ModuleType("schemas")
-schemas_stub.PaperEntity = object
-sys.modules.setdefault("schemas", schemas_stub)
-
-build_paper_docx = importlib.import_module("paper_docx").build_paper_docx
+from testpaper_backend.documents.paper_docx import build_paper_docx
 
 
 def _document_xml(docx_bytes: bytes) -> str:

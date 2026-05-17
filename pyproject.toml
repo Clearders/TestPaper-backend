@@ -14,6 +14,9 @@ dependencies = [
     "python-dotenv>=1.2.2",
 ]
 
+[project.scripts]
+testpaper-backend = "testpaper_backend.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.0",
@@ -23,6 +26,10 @@ dev = [
 [tool.ruff]
 line-length = 140
 target-version = "py314"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -12,7 +12,16 @@ from sqlalchemy import cast as sql_cast
 
 from testpaper_backend.db import QuestionRow, SessionLocal, UserRow
 from testpaper_backend.repositories import QUESTIONS, has_latex, question_row_to_entity
-from testpaper_backend.schemas import Difficulty, QuestionBase, QuestionCreate, QuestionEntity, QuestionType, QuestionUpdate, SortOrder, UserEntity
+from testpaper_backend.schemas import (
+    Difficulty,
+    QuestionBase,
+    QuestionCreate,
+    QuestionEntity,
+    QuestionType,
+    QuestionUpdate,
+    SortOrder,
+    UserEntity,
+)
 from testpaper_backend.security import has_permission
 from testpaper_backend.time_utils import now_utc
 

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from celery.result import AsyncResult
 from fastapi import APIRouter, Query, Request
 
 from testpaper_backend.api.dependencies import PapersReadDep, QuestionsReadDep, UsersManageDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.security import has_permission
+from testpaper_backend.worker.celery_app import celery
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
@@ -14,8 +16,6 @@ router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 @router.post("/ping")
 async def task_ping(request: Request, current_user: QuestionsReadDep):
     """Dispatch a Celery ping task and return its task ID for polling."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task("ping")
     return envelope({"taskId": result.id, "status": "dispatched"}, request)
 
@@ -23,10 +23,6 @@ async def task_ping(request: Request, current_user: QuestionsReadDep):
 @router.get("/{task_id}")
 async def task_status(request: Request, task_id: str, current_user: QuestionsReadDep):
     """Poll the status/result of any Celery task by ID."""
-    from celery.result import AsyncResult
-
-    from testpaper_backend.worker.celery_app import celery
-
     result = AsyncResult(task_id, app=celery)
 
     response_data: dict[str, Any] = {
@@ -55,8 +51,6 @@ async def task_export_paper(
     export_format: str = Query(default="json", alias="format", pattern="^(json|csv|txt)$"),
 ):
     """Dispatch an asynchronous paper export. Returns a task ID for polling."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task(
         "export_paper",
         args=[paper_id],
@@ -78,8 +72,6 @@ async def task_validate_all_questions(
     current_user: QuestionsReadDep,
 ):
     """Dispatch an async validation of all questions."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task("validate_all_questions")
     return envelope({"taskId": result.id, "status": "dispatched"}, request)
 
@@ -91,8 +83,6 @@ async def task_validate_question(
     current_user: QuestionsReadDep,
 ):
     """Dispatch an async validation of a single question."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task("validate_question", args=[question_id])
     return envelope({"taskId": result.id, "status": "dispatched", "questionId": question_id}, request)
 
@@ -103,8 +93,6 @@ async def task_cleanup_expired_sessions(
     current_user: UsersManageDep,
 ):
     """Dispatch an async cleanup of expired auth tokens."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task("cleanup_expired_sessions")
     return envelope({"taskId": result.id, "status": "dispatched"}, request)
 
@@ -115,7 +103,5 @@ async def task_compute_question_stats(
     current_user: QuestionsReadDep,
 ):
     """Dispatch async question statistics computation."""
-    from testpaper_backend.worker.celery_app import celery
-
     result = celery.send_task("compute_question_stats")
     return envelope({"taskId": result.id, "status": "dispatched"}, request)

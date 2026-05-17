@@ -7,8 +7,8 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Un
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
-from testpaper_backend.schemas import PaperStatus, UserRole
 from testpaper_backend.config import get_database_url
+from testpaper_backend.schemas import PaperStatus, UserRole
 
 
 class Base(DeclarativeBase):

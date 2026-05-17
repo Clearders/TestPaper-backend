@@ -8,11 +8,11 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import func
 
-from testpaper_backend.worker.celery_app import BaseTask
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import PAPERS, QUESTIONS
 from testpaper_backend.schemas import QuestionOrder, QuestionType
 from testpaper_backend.services.papers import build_export_questions, paper_to_dict
+from testpaper_backend.worker.celery_app import BaseTask
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ def validate_all_questions_task(self: BaseTask) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# LaTeX rendering (placeholder â€?real rendering needs a LaTeX engine)
+# LaTeX rendering placeholder. Real rendering needs a LaTeX engine.
 # ---------------------------------------------------------------------------
 @shared_task(name="detect_latex_questions", bind=True, base=BaseTask)
 def detect_latex_questions_task(self: BaseTask) -> list[int]:

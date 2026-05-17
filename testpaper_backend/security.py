@@ -6,9 +6,9 @@ from typing import cast
 
 from fastapi import Depends, HTTPException, Request, status
 
+from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ROLE_PERMISSIONS, Permission, UserEntity, UserRole
-from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
 
@@ -94,8 +94,11 @@ def get_current_user(request: Request) -> UserEntity:
     return get_user_from_token(get_request_token(request))
 
 
+CurrentUserDependency = Depends(get_current_user)
+
+
 def require_permission(permission: Permission):
-    def dependency(current_user: UserEntity = Depends(get_current_user)) -> UserEntity:
+    def dependency(current_user: UserEntity = CurrentUserDependency) -> UserEntity:
         if not has_permission(current_user, permission):
             raise forbidden_error(permission)
         return current_user

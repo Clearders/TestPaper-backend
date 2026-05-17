@@ -6,7 +6,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from testpaper_backend.db import PaperQuestionRow, PaperRow, QuestionRow, SessionLocal
-from testpaper_backend.schemas import Difficulty, EssayBlankSpace, PaperEntity, PaperQuestion, PaperStatus, QuestionBase, QuestionEntity, QuestionImage, QuestionType
+from testpaper_backend.schemas import (
+    Difficulty,
+    EssayBlankSpace,
+    PaperEntity,
+    PaperQuestion,
+    PaperStatus,
+    QuestionBase,
+    QuestionEntity,
+    QuestionImage,
+    QuestionType,
+)
 
 
 def has_latex(value: QuestionBase | dict[str, Any]) -> bool:

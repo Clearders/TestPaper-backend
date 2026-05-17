@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from testpaper_backend.config import get_cors_origins
-
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
 

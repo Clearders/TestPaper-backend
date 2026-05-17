@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from logging.config import fileConfig
 
-from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
-from testpaper_backend.db import Base
+from alembic import context
 from testpaper_backend.config import get_database_url
+from testpaper_backend.db import Base
+
+load_dotenv()
 
 config = context.config
 
