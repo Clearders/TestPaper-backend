@@ -8,8 +8,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from db import Base
-from settings import get_database_url
+from testpaper_backend.db import Base
+from testpaper_backend.config import get_database_url
 
 config = context.config
 

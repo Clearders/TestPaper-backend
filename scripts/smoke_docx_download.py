@@ -25,10 +25,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_smoke_user(username: str, password: str) -> None:
-    from db import SessionLocal, UserRow
-    from schemas import UserRole
-    from security import password_hash
-    from time_utils import now_utc
+    from testpaper_backend.db import SessionLocal, UserRow
+    from testpaper_backend.schemas import UserRole
+    from testpaper_backend.security import password_hash
+    from testpaper_backend.time_utils import now_utc
 
     with SessionLocal() as session:
         row = session.scalars(select(UserRow).where(UserRow.username == username)).first()

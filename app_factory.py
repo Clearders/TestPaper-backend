@@ -1,26 +1,6 @@
-from __future__ import annotations
+"""Compatibility exports for the FastAPI application factory."""
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager
-from typing import Any
+from testpaper_backend.core.factory import Lifespan, create_app
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+__all__ = ["Lifespan", "create_app"]
 
-from settings import get_cors_origins
-
-
-Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
-
-
-def create_app(*, lifespan: Lifespan) -> FastAPI:
-    app = FastAPI(title="TestPaper Backend", version="1.0.0", lifespan=lifespan)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=get_cors_origins(),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["Content-Disposition", "X-Export-Format"],
-    )
-    return app
