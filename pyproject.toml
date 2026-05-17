@@ -17,6 +17,10 @@ dependencies = [
 [project.scripts]
 testpaper-backend = "testpaper_backend.main:main"
 
+[tool.setuptools.packages.find]
+include = ["testpaper_backend*"]
+exclude = ["alembic*", "tests*", "scripts*"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.0",
