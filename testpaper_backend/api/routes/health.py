@@ -40,7 +40,7 @@ async def redis_health(request: Request):
 
         client = get_redis()
         start = perf_counter()
-        client.ping()
+        await client.ping()
         latency_ms = round((perf_counter() - start) * 1000, 2)
         info = cast(dict[str, Any], client.info(section="server"))
         return envelope(
