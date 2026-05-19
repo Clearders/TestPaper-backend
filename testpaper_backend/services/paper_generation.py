@@ -10,7 +10,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 
 from testpaper_backend.db import QuestionRow, SessionLocal
-from testpaper_backend.repositories import question_row_to_entity
+from testpaper_backend.repositories import normalize_question_type, question_row_to_entity
 from testpaper_backend.schemas import Difficulty, PaperGenerateRequest, PaperQuestion, QuestionEntity, QuestionType
 
 
@@ -116,13 +116,19 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
     subject = payload.subject.strip()
     statement = select(QuestionRow).where(
         func.lower(func.trim(QuestionRow.subject)) == subject.lower(),
-        func.lower(func.trim(QuestionRow.type)) == payload.questionType.value.lower(),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
     with SessionLocal() as session:
         rows = session.scalars(statement.order_by(QuestionRow.id)).all()
-        candidates = [question_row_to_entity(row) for row in rows]
+        candidates = []
+        for row in rows:
+            try:
+                row_type = normalize_question_type(row.type)
+            except ValueError:
+                continue
+            if row_type == payload.questionType:
+                candidates.append(question_row_to_entity(row))
     if not candidates:
         source_message = " in your question bank" if owner_id is not None else ""
         raise HTTPException(

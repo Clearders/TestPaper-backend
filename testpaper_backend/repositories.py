@@ -23,6 +23,69 @@ def _normalize_enum_token(value: Any) -> str:
     return str(value).strip().lower()
 
 
+_QUESTION_TYPE_ALIASES = {
+    "choice": QuestionType.choice,
+    "choices": QuestionType.choice,
+    "choice_question": QuestionType.choice,
+    "multiple_choice": QuestionType.choice,
+    "multiple_choice_question": QuestionType.choice,
+    "single_choice": QuestionType.choice,
+    "single_choice_question": QuestionType.choice,
+    "mcq": QuestionType.choice,
+    "选择": QuestionType.choice,
+    "选择题": QuestionType.choice,
+    "单选": QuestionType.choice,
+    "单选题": QuestionType.choice,
+    "单项选择题": QuestionType.choice,
+    "多选": QuestionType.choice,
+    "多选题": QuestionType.choice,
+    "true_false": QuestionType.true_false,
+    "truefalse": QuestionType.true_false,
+    "true_false_question": QuestionType.true_false,
+    "judgment": QuestionType.true_false,
+    "judgement": QuestionType.true_false,
+    "判断": QuestionType.true_false,
+    "判断题": QuestionType.true_false,
+    "blank": QuestionType.blank,
+    "blanks": QuestionType.blank,
+    "blank_question": QuestionType.blank,
+    "fill_blank": QuestionType.blank,
+    "fill_in_blank": QuestionType.blank,
+    "fill_in_the_blank": QuestionType.blank,
+    "填空": QuestionType.blank,
+    "填空题": QuestionType.blank,
+    "short_answer": QuestionType.short_answer,
+    "shortanswer": QuestionType.short_answer,
+    "short_answer_question": QuestionType.short_answer,
+    "brief_answer": QuestionType.short_answer,
+    "简答": QuestionType.short_answer,
+    "简答题": QuestionType.short_answer,
+    "essay": QuestionType.essay,
+    "essay_question": QuestionType.essay,
+    "long_answer": QuestionType.essay,
+    "long_answer_question": QuestionType.essay,
+    "解答": QuestionType.essay,
+    "解答题": QuestionType.essay,
+    "问答": QuestionType.essay,
+    "问答题": QuestionType.essay,
+    "论述": QuestionType.essay,
+    "论述题": QuestionType.essay,
+}
+
+
+def _normalize_question_type_token(value: Any) -> str:
+    token = _normalize_enum_token(value)
+    if "." in token:
+        token = token.rsplit(".", 1)[-1]
+    token = token.replace("-", "_").replace(" ", "_").replace("　", "_")
+    return "_".join(part for part in token.split("_") if part)
+
+
+def normalize_question_type(value: Any) -> QuestionType:
+    token = _normalize_question_type_token(value)
+    return _QUESTION_TYPE_ALIASES.get(token) or QuestionType(token)
+
+
 def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
     text = value.text if isinstance(value, QuestionBase) else value.get("text", "")
     answer = value.answer if isinstance(value, QuestionBase) else value.get("answer", "")
@@ -34,7 +97,7 @@ def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
 def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
     return QuestionEntity(
         id=row.id,
-        type=QuestionType(_normalize_enum_token(row.type)),
+        type=normalize_question_type(row.type),
         subject=row.subject,
         difficulty=Difficulty(_normalize_enum_token(row.difficulty)),
         tags=list(row.tags or []),
