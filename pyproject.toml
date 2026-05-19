@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "testpaper-backend"
 version = "0.1.0"
@@ -17,9 +21,15 @@ dependencies = [
 [project.scripts]
 testpaper-backend = "testpaper_backend.main:main"
 
+[tool.setuptools]
+py-modules = []
+
 [tool.setuptools.packages.find]
 include = ["testpaper_backend*"]
 exclude = ["alembic*", "tests*", "scripts*"]
+
+[tool.setuptools.package-data]
+testpaper_backend = ["documents/ExamPaperTemplate.docx"]
 
 [dependency-groups]
 dev = [

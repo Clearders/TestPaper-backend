@@ -6,9 +6,6 @@ FastAPI backend for TestPapers. The service exposes REST and WebSocket APIs, use
 
 ```text
 TestPaper-backend/
-  app.py                         # Compatibility entrypoint: uvicorn app:app
-  celery_app.py                  # Compatibility entrypoint: celery -A celery_app
-  main.py                        # CLI runner for local API startup
   alembic/                       # Database migrations
   scripts/                       # Smoke-test helpers
   tests/                         # Automated tests
@@ -33,22 +30,33 @@ TestPaper-backend/
     services/                    # Business logic by domain
     documents/
       paper_docx.py              # DOCX export generation
+      ExamPaperTemplate.docx     # Packaged DOCX export template
     worker/
       celery_app.py              # Celery app configuration
       tasks.py                   # Celery task definitions
 ```
 
+## Local Setup
+
+Install the backend from this directory in an activated Python environment:
+
+```bash
+pip install -e .
+```
+
+The activated environment puts the installed `testpaper-backend`, `uvicorn`, `celery`, and `alembic` console scripts on `PATH`.
+
 ## Local Commands
 
 ```bash
 # API
-uvicorn app:app --reload
+testpaper-backend
 
-# Alternative Python entrypoint
-python main.py
+# Alternative uvicorn command
+uvicorn testpaper_backend.application:app --reload
 
 # Celery worker
-celery -A celery_app worker --loglevel=info
+celery -A testpaper_backend.worker.celery_app:celery worker --loglevel=info
 
 # Database migrations
 alembic upgrade head
@@ -93,4 +101,3 @@ All application routes are under `/api/v1`.
 - `/tasks` for Celery task dispatch/status
 - `/health` for Redis/PostgreSQL health checks
 - `/ws` for authenticated realtime events
-

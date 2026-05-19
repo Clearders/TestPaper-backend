@@ -16,7 +16,7 @@ from testpaper_backend.schemas import PaperEntity
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("ExamPaperTemplate.docx")
-DEFAULT_IMAGE_UPLOAD_DIR = Path(__file__).with_name("uploaded-images")
+DEFAULT_IMAGE_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploaded-images"
 _DOCX_NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
