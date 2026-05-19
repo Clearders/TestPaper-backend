@@ -19,6 +19,10 @@ from testpaper_backend.schemas import (
 )
 
 
+def _normalize_enum_token(value: Any) -> str:
+    return str(value).strip().lower()
+
+
 def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
     text = value.text if isinstance(value, QuestionBase) else value.get("text", "")
     answer = value.answer if isinstance(value, QuestionBase) else value.get("answer", "")
@@ -30,9 +34,9 @@ def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
 def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
     return QuestionEntity(
         id=row.id,
-        type=QuestionType(row.type),
+        type=QuestionType(_normalize_enum_token(row.type)),
         subject=row.subject,
-        difficulty=Difficulty(row.difficulty),
+        difficulty=Difficulty(_normalize_enum_token(row.difficulty)),
         tags=list(row.tags or []),
         text=row.text,
         options=list(row.options) if row.options is not None else None,

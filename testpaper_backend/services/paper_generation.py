@@ -50,7 +50,7 @@ def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[
     attempts = 0
     max_attempts = max(1, len(ranked) * max(total_marks, sum(marks)))
     while remaining != 0 and ranked and attempts < max_attempts:
-        question_index = ranked[index % len(ranked)][0]
+        question_index, _ = ranked[index % len(ranked)]
         if remaining > 0:
             marks[question_index] += 1
             remaining -= 1
@@ -115,8 +115,8 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
     subject = payload.subject.strip()
     statement = select(QuestionRow).where(
-        func.lower(QuestionRow.subject) == subject.lower(),
-        QuestionRow.type == payload.questionType.value,
+        func.lower(func.trim(QuestionRow.subject)) == subject.lower(),
+        func.lower(func.trim(QuestionRow.type)) == payload.questionType.value.lower(),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
