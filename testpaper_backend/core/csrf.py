@@ -38,6 +38,12 @@ def clear_csrf_cookie(response: Response) -> None:
     )
 
 
+CSRF_EXEMPT_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+}
+
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method in SAFE_METHODS:
@@ -45,6 +51,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
         scope_type = request.scope.get("type", "")
         if scope_type == "websocket":
+            return await call_next(request)
+
+        path = request.url.path
+        if path in CSRF_EXEMPT_PATHS:
             return await call_next(request)
 
         cookie_token = request.cookies.get(get_csrf_cookie_name())
