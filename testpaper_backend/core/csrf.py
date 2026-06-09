@@ -3,8 +3,8 @@ from __future__ import annotations
 import secrets
 
 from fastapi import Request, Response, status
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from testpaper_backend.config import get_csrf_cookie_name, get_auth_cookie_domain, get_auth_cookie_samesite, get_auth_cookie_secure
 
@@ -49,38 +49,48 @@ def _is_csrf_exempt(path: str) -> bool:
     return normalized.endswith(CSRF_EXEMPT_PATH_SUFFIXES)
 
 
-class CSRFMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+class CSRFMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+
         if request.method in SAFE_METHODS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        scope_type = request.scope.get("type", "")
-        if scope_type == "websocket":
-            return await call_next(request)
-
-        path = request.url.path
-        if _is_csrf_exempt(path):
-            return await call_next(request)
+        if _is_csrf_exempt(request.url.path):
+            await self.app(scope, receive, send)
+            return
 
         cookie_token = request.cookies.get(get_csrf_cookie_name())
         header_token = request.headers.get("x-csrf-token")
 
         if not cookie_token or not header_token:
-            return JSONResponse(
+            response: JSONResponse = JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={
                     "success": False,
                     "error": {"code": "CSRF_MISSING", "message": "CSRF token missing"},
                 },
             )
+            await response(scope, receive, send)
+            return
 
         if not secrets.compare_digest(cookie_token, header_token):
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={
                     "success": False,
                     "error": {"code": "CSRF_MISMATCH", "message": "CSRF token mismatch"},
                 },
             )
+            await response(scope, receive, send)
+            return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
