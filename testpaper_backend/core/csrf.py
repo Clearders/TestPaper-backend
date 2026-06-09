@@ -38,10 +38,15 @@ def clear_csrf_cookie(response: Response) -> None:
     )
 
 
-CSRF_EXEMPT_PATHS = {
-    "/api/v1/auth/login",
-    "/api/v1/auth/register",
-}
+CSRF_EXEMPT_PATH_SUFFIXES = (
+    "/auth/login",
+    "/auth/register",
+)
+
+
+def _is_csrf_exempt(path: str) -> bool:
+    normalized = path.rstrip("/")
+    return normalized.endswith(CSRF_EXEMPT_PATH_SUFFIXES)
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
@@ -54,7 +59,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        if path in CSRF_EXEMPT_PATHS:
+        if _is_csrf_exempt(path):
             return await call_next(request)
 
         cookie_token = request.cookies.get(get_csrf_cookie_name())
