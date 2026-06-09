@@ -252,8 +252,8 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         )
     difficulty_targets = difficulty_targets_from_coefficient(payload.difficultyCoefficient, question_count)
     type_targets = {payload.questionType: question_count}
-    required_tags: set[str] = set()
-    optional_tags: set[str] = set()
+    required_tags: set[str] = {tag.lower().strip() for tag in (payload.requiredTags or []) if tag and tag.strip()}
+    optional_tags: set[str] = {tag.lower().strip() for tag in (payload.preferredTags or []) if tag and tag.strip()} - required_tags
     population_size = max(algorithm.populationSize, algorithm.elitismCount + algorithm.tournamentSize)
     population_size = min(population_size, max(1, len(candidate_ids) * 8))
     target_score_weight = payload.totalMarks
@@ -280,6 +280,8 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
                 "typeTargets": {key.value: value for key, value in type_targets.items()},
                 "typeActual": dict(Counter(question.type.value for question in selected_questions)),
                 "generationsRun": 0,
+                "requiredTags": list(required_tags),
+                "preferredTags": list(optional_tags),
             },
         }
 
@@ -347,6 +349,8 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         "typeTargets": {key.value: value for key, value in type_targets.items()},
         "typeActual": dict(Counter(question.type.value for question in selected_questions)),
         "generationsRun": generations_run,
+        "requiredTags": list(required_tags),
+        "preferredTags": list(optional_tags),
     }
     return {
         "paperQuestions": paper_questions,

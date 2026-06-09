@@ -4,6 +4,8 @@ import hashlib
 import secrets
 from typing import cast
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerificationError
 from fastapi import Depends, HTTPException, Request, status
 
 from testpaper_backend.config import get_auth_cookie_name
@@ -11,15 +13,14 @@ from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ROLE_PERMISSIONS, Permission, UserEntity, UserRole
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
+_ph = PasswordHasher()
+
 
 def password_hash(password: str) -> str:
-    iterations = 120_000
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
-    return f"pbkdf2_sha256${iterations}${salt}${digest}"
+    return _ph.hash(password)
 
 
-def verify_password(password: str, stored_hash: str) -> bool:
+def _verify_pbkdf2(password: str, stored_hash: str) -> bool:
     try:
         algorithm, iterations_text, salt, expected = stored_hash.split("$", 3)
         if algorithm != "pbkdf2_sha256":
@@ -28,6 +29,21 @@ def verify_password(password: str, stored_hash: str) -> bool:
         return secrets.compare_digest(digest, expected)
     except (ValueError, TypeError):
         return False
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    if stored_hash.startswith("$argon2"):
+        try:
+            return _ph.verify(stored_hash, password)
+        except VerificationError:
+            return False
+    return _verify_pbkdf2(password, stored_hash)
+
+
+def needs_rehash(stored_hash: str) -> bool:
+    if stored_hash.startswith("$argon2"):
+        return _ph.check_needs_rehash(stored_hash)
+    return True
 
 
 def permissions_for_role(role: UserRole | str) -> list[Permission]:
@@ -39,6 +55,7 @@ def user_row_to_entity(row: UserRow) -> UserEntity:
     role = UserRole(row.role)
     return UserEntity(
         id=row.id,
+        publicId=row.public_id,
         username=row.username,
         displayName=row.display_name,
         role=role,

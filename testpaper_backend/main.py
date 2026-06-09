@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uvicorn
 
-from testpaper_backend.config import get_api_host, get_api_port
+from testpaper_backend.config import get_api_host, get_api_port, get_app_env
 
 
 def main() -> None:
@@ -10,6 +10,7 @@ def main() -> None:
         "testpaper_backend.application:app",
         host=get_api_host(),
         port=get_api_port(),
-        reload=True,
+        reload=get_app_env() == "development",
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
     )
-

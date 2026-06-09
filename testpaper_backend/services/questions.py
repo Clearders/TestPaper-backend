@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime
 from math import ceil
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
@@ -38,6 +39,7 @@ QUESTION_SORT_COLUMNS = {
 def normalize_question_payload(payload: QuestionBase, question_id: int, created_at: datetime | None = None) -> QuestionEntity:
     normalized = deepcopy(payload.model_dump())
     normalized["hasLatex"] = payload.hasLatex if payload.hasLatex is not None else has_latex(payload)
+    normalized["publicId"] = str(uuid4())
     return QuestionEntity(
         id=question_id,
         createdAt=created_at or now_utc(),
@@ -98,6 +100,7 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> Qu
 
     normalized_data = normalized.model_dump()
     normalized_data["hasLatex"] = patch.hasLatex if patch.hasLatex is not None else has_latex(normalized)
+    normalized_data["publicId"] = question.publicId
     return QuestionEntity(
         id=question.id,
         createdAt=question.createdAt,

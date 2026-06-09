@@ -146,6 +146,7 @@ class QuestionUpdate(BaseModel):
 
 class QuestionEntity(QuestionBase):
     id: int
+    publicId: str
     createdAt: datetime
     updatedAt: datetime
 
@@ -191,6 +192,7 @@ class PaperUpdate(BaseModel):
 
 class PaperEntity(PaperBase):
     id: int
+    publicId: str
     questions: list[PaperQuestion]
     status: PaperStatus = PaperStatus.draft
     createdAt: datetime
@@ -201,10 +203,14 @@ class PaperGenerateRequest(PaperBase):
     difficultyCoefficient: float = Field(ge=0, le=1)
     questionType: QuestionType
     ownQuestionsOnly: bool = False
+    requiredTags: list[str] = Field(default_factory=list)
+    preferredTags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def normalize_generation_request(self):
         self.difficultyCoefficient = round(self.difficultyCoefficient, 2)
+        self.requiredTags = [tag.strip().lower() for tag in self.requiredTags if tag and tag.strip()]
+        self.preferredTags = [tag.strip().lower() for tag in self.preferredTags if tag and tag.strip()]
         return self
 
 
@@ -269,6 +275,7 @@ class UserUpdate(BaseModel):
 
 class UserEntity(BaseModel):
     id: int
+    publicId: str
     username: str
     displayName: str
     role: UserRole

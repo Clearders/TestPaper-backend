@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
@@ -19,6 +20,7 @@ class UserRow(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
     username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     display_name: Mapped[str] = mapped_column("displayName", String(120), nullable=False)
     password_hash: Mapped[str] = mapped_column("passwordHash", String(255), nullable=False)
@@ -43,6 +45,7 @@ class QuestionRow(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
     type: Mapped[str] = mapped_column(String(16), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     difficulty: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
@@ -64,6 +67,7 @@ class PaperRow(Base):
     __tablename__ = "papers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)

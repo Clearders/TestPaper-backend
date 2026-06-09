@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -43,6 +44,7 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Pap
         get_question_or_404(item.questionId)
     paper = PaperEntity(
         id=0,
+        publicId=str(uuid4()),
         title=payload.title,
         subject=payload.subject,
         duration=payload.duration,
@@ -63,6 +65,7 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
     generated = generate_paper_with_genetic_algorithm(payload, owner_id=owner_id)
     paper = PaperEntity(
         id=0,
+        publicId=str(uuid4()),
         title=payload.title,
         subject=payload.subject,
         duration=payload.duration,

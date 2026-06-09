@@ -93,3 +93,36 @@ def get_celery_broker_url() -> str:
 def get_celery_result_backend_url() -> str:
     raw = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
     return raw
+
+
+def get_app_env() -> str:
+    value = os.getenv("APP_ENV", "development")
+    if value in ("production", "prod"):
+        return "production"
+    return "development"
+
+
+def is_production() -> bool:
+    return get_app_env() == "production"
+
+
+def get_csrf_cookie_name() -> str:
+    return os.getenv("CSRF_COOKIE_NAME", "testpapers_csrf")
+
+
+def get_trusted_hosts() -> list[str]:
+    raw = os.getenv("TRUSTED_HOSTS")
+    if not raw:
+        return ["*"]
+    return [host.strip() for host in raw.split(",") if host.strip()]
+
+
+def get_session_ttl_hours() -> int:
+    raw = os.getenv("SESSION_TTL_HOURS", "12")
+    try:
+        hours = int(raw)
+        if hours < 1:
+            raise ValueError
+        return hours
+    except ValueError as exc:
+        raise RuntimeError("SESSION_TTL_HOURS must be a positive integer.") from exc

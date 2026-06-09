@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
 from testpaper_backend.api.dependencies import CurrentUserDep
+from testpaper_backend.core.csrf import clear_csrf_cookie, generate_csrf_token, set_csrf_cookie
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import LoginRequest, RegisterRequest, UserRole
@@ -26,6 +27,7 @@ async def login(request: Request, response: Response, payload: LoginRequest):
 
         token, auth_session = create_auth_session(session, user_row)
         set_auth_cookie(response, token, auth_session.expiresAt)
+        set_csrf_cookie(response, generate_csrf_token())
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
@@ -54,6 +56,7 @@ async def register(request: Request, response: Response, payload: RegisterReques
 
         token, auth_session = create_auth_session(session, user_row)
         set_auth_cookie(response, token, auth_session.expiresAt)
+        set_csrf_cookie(response, generate_csrf_token())
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
@@ -79,4 +82,5 @@ async def logout(request: Request):
             session.commit()
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
+    clear_csrf_cookie(response)
     return response

@@ -6,6 +6,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Request
 from sqlalchemy import text
 
+from testpaper_backend.config import is_production
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import engine
 
@@ -27,8 +28,9 @@ async def postgres_health(request: Request):
             request,
         )
     except Exception as exc:
+        error_msg = "Database health check failed" if is_production() else str(exc)
         return envelope(
-            {"status": "disconnected", "error": str(exc)},
+            {"status": "disconnected", "error": error_msg},
             request,
         )
 
@@ -48,8 +50,9 @@ async def redis_health(request: Request):
             request,
         )
     except Exception as exc:
+        error_msg = "Redis health check failed" if is_production() else str(exc)
         return envelope(
-            {"status": "disconnected", "error": str(exc)},
+            {"status": "disconnected", "error": error_msg},
             request,
         )
 

@@ -4,6 +4,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 
+from testpaper_backend.config import get_cors_origins
 from testpaper_backend.security import get_user_from_token
 from testpaper_backend.services.realtime import get_websocket_token, realtime
 from testpaper_backend.time_utils import now_utc
@@ -13,6 +14,11 @@ router = APIRouter(prefix="/api/v1", tags=["realtime"])
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    origin = websocket.headers.get("origin", "")
+    if origin and origin not in get_cors_origins():
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     try:
         current_user = get_user_from_token(get_websocket_token(websocket))
     except HTTPException:

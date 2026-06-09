@@ -97,6 +97,7 @@ def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
 def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
     return QuestionEntity(
         id=row.id,
+        publicId=row.public_id,
         type=normalize_question_type(row.type),
         subject=row.subject,
         difficulty=Difficulty(_normalize_enum_token(row.difficulty)),
@@ -118,6 +119,7 @@ def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
 def question_entity_to_row_kwargs(question: QuestionEntity) -> dict[str, Any]:
     return {
         "id": question.id,
+        "public_id": question.publicId,
         "type": question.type.value,
         "subject": question.subject,
         "difficulty": question.difficulty.value,
@@ -139,6 +141,7 @@ def question_entity_to_row_kwargs(question: QuestionEntity) -> dict[str, Any]:
 def paper_row_to_entity(row: PaperRow) -> PaperEntity:
     return PaperEntity(
         id=row.id,
+        publicId=row.public_id,
         title=row.title,
         subject=row.subject,
         duration=row.duration,
@@ -156,6 +159,7 @@ def paper_row_to_entity(row: PaperRow) -> PaperEntity:
 def paper_entity_to_row_kwargs(paper: PaperEntity) -> dict[str, Any]:
     return {
         "id": paper.id,
+        "public_id": paper.publicId,
         "title": paper.title,
         "subject": paper.subject,
         "duration": paper.duration,

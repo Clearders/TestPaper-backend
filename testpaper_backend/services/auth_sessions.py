@@ -7,20 +7,22 @@ from typing import cast
 from fastapi import Response
 from sqlalchemy.orm import Session
 
-from testpaper_backend.config import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure
+from testpaper_backend.config import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure, get_session_ttl_hours
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import AuthSession
 from testpaper_backend.security import auth_error, user_row_to_entity
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
-SESSION_TTL = timedelta(hours=12)
+
+def _session_ttl() -> timedelta:
+    return timedelta(hours=get_session_ttl_hours())
 
 
 def create_auth_session(session: Session, user_row: UserRow) -> tuple[str, AuthSession]:
     now = now_utc()
     session.query(AuthTokenRow).filter(AuthTokenRow.expires_at <= now).delete(synchronize_session=False)
     token = secrets.token_urlsafe(48)
-    expires_at = now + SESSION_TTL
+    expires_at = now + _session_ttl()
     session.add(AuthTokenRow(token=token, user_id=user_row.id, created_at=now, expires_at=expires_at))
     session.commit()
     session.refresh(user_row)
