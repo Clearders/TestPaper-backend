@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import traceback
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from testpaper_backend.config import is_production
 from testpaper_backend.core.responses import error_envelope
 
 
@@ -46,7 +48,13 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
+        traceback.print_exc()
+        if is_production():
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content=error_envelope("INTERNAL_ERROR", "Internal server error", request),
+            )
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=error_envelope("INTERNAL_ERROR", "Internal server error", request),
+            content=error_envelope("INTERNAL_ERROR", f"{type(exc).__name__}: {exc}", request),
         )
