@@ -114,6 +114,7 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
     subject = payload.subject.strip()
+    selected_types = {t.questionType for t in payload.questionTypes}
     statement = select(QuestionRow).where(
         func.lower(func.trim(QuestionRow.subject)) == subject.lower(),
     )
@@ -127,18 +128,19 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
                 row_type = normalize_question_type(row.type)
             except ValueError:
                 continue
-            if row_type == payload.questionType:
+            if row_type in selected_types:
                 candidates.append(question_row_to_entity(row))
     if not candidates:
         source_message = " in your question bank" if owner_id is not None else ""
+        type_names = ", ".join(t.value for t in selected_types)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least 1 {payload.questionType.value} question for {subject}{source_message}, found 0.",
+                "message": f"Need at least 1 question of types [{type_names}] for {subject}{source_message}, found 0.",
                 "details": {
                     "subject": subject,
-                    "questionType": payload.questionType.value,
+                    "questionTypes": [t.value for t in selected_types],
                     "candidateCount": 0,
                     "ownQuestionsOnly": owner_id is not None,
                 },
@@ -241,7 +243,11 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
     candidate_ids = list(question_by_id)
     algorithm = GeneticAlgorithmOptions()
     rng = random.Random(algorithm.randomSeed)
-    question_count = resolve_generation_question_count(payload, candidates)
+    type_targets: dict[QuestionType, int] = {}
+    for t in payload.questionTypes:
+        available = sum(1 for q in candidates if q.type == t.questionType)
+        type_targets[t.questionType] = min(t.count, available)
+    question_count = sum(type_targets.values())
     if len(candidates) < question_count:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -251,7 +257,6 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
             },
         )
     difficulty_targets = difficulty_targets_from_coefficient(payload.difficultyCoefficient, question_count)
-    type_targets = {payload.questionType: question_count}
     required_tags: set[str] = {tag.lower().strip() for tag in (payload.requiredTags or []) if tag and tag.strip()}
     optional_tags: set[str] = {tag.lower().strip() for tag in (payload.preferredTags or []) if tag and tag.strip()} - required_tags
     population_size = max(algorithm.populationSize, algorithm.elitismCount + algorithm.tournamentSize)

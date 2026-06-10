@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-from testpaper_backend.schemas import Difficulty, PaperGenerateRequest, QuestionType
+from testpaper_backend.schemas import Difficulty, GenerationTypeTarget, PaperGenerateRequest, QuestionType
 from testpaper_backend.services import paper_generation
 
 
@@ -12,6 +12,7 @@ def _question_row(question_id: int, question_type: str, *, options: list[str] | 
     now = datetime(2026, 5, 19, tzinfo=UTC)
     return SimpleNamespace(
         id=question_id,
+        public_id=f'q-{question_id}',
         type=question_type,
         subject="assas",
         difficulty=Difficulty.easy.value,
@@ -37,7 +38,7 @@ def _generation_payload() -> PaperGenerateRequest:
         duration=60,
         totalMarks=10,
         difficultyCoefficient=0.5,
-        questionType=QuestionType.choice,
+        questionTypes=[GenerationTypeTarget(questionType=QuestionType.choice, count=10)],
     )
 
 

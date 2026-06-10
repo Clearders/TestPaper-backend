@@ -199,9 +199,14 @@ class PaperEntity(PaperBase):
     updatedAt: datetime
 
 
+class GenerationTypeTarget(BaseModel):
+    questionType: QuestionType
+    count: int = Field(gt=0)
+
+
 class PaperGenerateRequest(PaperBase):
     difficultyCoefficient: float = Field(ge=0, le=1)
-    questionType: QuestionType
+    questionTypes: list[GenerationTypeTarget] = Field(min_length=1)
     ownQuestionsOnly: bool = False
     requiredTags: list[str] = Field(default_factory=list)
     preferredTags: list[str] = Field(default_factory=list)
