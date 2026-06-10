@@ -38,7 +38,7 @@ def _generation_payload() -> PaperGenerateRequest:
         duration=60,
         totalMarks=10,
         difficultyCoefficient=0.5,
-        questionTypes=[GenerationTypeTarget(questionType=QuestionType.choice, count=10)],
+        questionTypes=[GenerationTypeTarget(questionType=QuestionType.single_choice, count=10)],
     )
 
 
@@ -70,4 +70,4 @@ def test_build_generation_candidates_matches_database_string_type_alias(monkeypa
     candidates = paper_generation.build_generation_candidates(_generation_payload(), owner_id=1)
 
     assert [question.id for question in candidates] == [1]
-    assert candidates[0].type == QuestionType.choice
+    assert candidates[0].type == QuestionType.single_choice

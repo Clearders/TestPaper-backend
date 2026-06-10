@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class QuestionType(StrEnum):
-    choice = "choice"
+    single_choice = "single_choice"
+    multiple_choice = "multiple_choice"
     true_false = "true_false"
     blank = "blank"
     short_answer = "short_answer"
@@ -94,7 +95,7 @@ class QuestionBase(BaseModel):
     tags: list[str] = Field(default_factory=list)
     text: str = Field(min_length=1)
     options: list[str] | None = None
-    answer: str = Field(min_length=1)
+    answer: str | list[str] = Field(min_length=1)
     hasLatex: bool | None = None
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None
@@ -104,7 +105,8 @@ class QuestionBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_question_type(self):
-        if self.type in (QuestionType.choice, QuestionType.true_false):
+        option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
+        if self.type in option_types:
             if not self.options:
                 raise ValueError(f"{self.type.value} questions require options")
         else:
@@ -123,6 +125,18 @@ class QuestionBase(BaseModel):
             self.source = self.source.strip() or None
         return self
 
+    @model_validator(mode="after")
+    def validate_question_answer(self):
+        if self.type == QuestionType.multiple_choice:
+            if not isinstance(self.answer, list):
+                raise ValueError("multiple_choice questions require answer to be a list")
+            if len(self.answer) < 1:
+                raise ValueError("multiple_choice questions require at least one answer")
+        else:
+            if not isinstance(self.answer, str):
+                raise ValueError(f"{self.type.value} questions require answer to be a string")
+        return self
+
 
 class QuestionCreate(QuestionBase):
     pass
@@ -135,7 +149,7 @@ class QuestionUpdate(BaseModel):
     tags: list[str] | None = None
     text: str | None = Field(default=None, min_length=1)
     options: list[str] | None = None
-    answer: str | None = Field(default=None, min_length=1)
+    answer: str | list[str] | None = Field(default=None, min_length=1)
     hasLatex: bool | None = None
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None

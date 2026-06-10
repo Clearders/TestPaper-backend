@@ -53,7 +53,7 @@ def insert_seed_questions(now: datetime) -> None:
     questions = [
         {
             "id": 1,
-            "type": "choice",
+            "type": "single_choice",
             "subject": "Mathematics",
             "difficulty": "easy",
             "tags": ["algebra"],

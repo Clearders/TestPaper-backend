@@ -117,7 +117,7 @@ def main() -> int:
 
         assert_ok(client.post("/auth/login", json={"username": args.username, "password": args.password}))
         question_payload = {
-            "type": "choice",
+            "type": "single_choice",
             "subject": "Smoke Testing",
             "difficulty": "easy",
             "tags": ["smoke", "docx"],

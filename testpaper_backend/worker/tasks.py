@@ -160,9 +160,10 @@ def _validate_question(question_id: int) -> dict[str, Any]:
     issues = []
     if not q.text or len(q.text.strip()) == 0:
         issues.append("Empty question text")
-    if not q.answer or len(q.answer.strip()) == 0:
+    if not q.answer or (isinstance(q.answer, str) and len(q.answer.strip()) == 0) or (isinstance(q.answer, list) and len(q.answer) == 0):
         issues.append("Empty answer text")
-    if q.type in (QuestionType.choice, QuestionType.true_false) and not q.options:
+    option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
+    if q.type in option_types and not q.options:
         issues.append("Choice/true-false question has no options")
     if q.type == QuestionType.essay and q.essayBlankSpace is None:
         issues.append("Essay question missing blank-space config")

@@ -53,14 +53,14 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> Qu
     patch_data = patch.model_dump(exclude_unset=True)
     data.update(patch_data)
 
+    option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
     if (
-        patch_data.get("type") == QuestionType.choice
-        or data.get("type") == QuestionType.choice
-        or data.get("type") == QuestionType.true_false
+        (patch_data.get("type") and patch_data["type"] in option_types)
+        or data.get("type") in option_types
     ):
         options = data.get("options") or []
         data["options"] = [option.strip() for option in options if option and option.strip()]
-    elif data.get("type") not in (QuestionType.choice, QuestionType.true_false):
+    elif data.get("type") not in option_types:
         data["options"] = None
 
     if data.get("type") == QuestionType.essay:
@@ -155,12 +155,13 @@ def ensure_question_owner_access(question: QuestionEntity, current_user: UserEnt
 
 
 def validate_question_payload(payload: QuestionBase) -> None:
-    if payload.type in (QuestionType.choice, QuestionType.true_false) and not payload.options:
+    option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
+    if payload.type in option_types and not payload.options:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "VALIDATION_ERROR", "message": f"{payload.type.value} questions require options"},
         )
-    if payload.type not in (QuestionType.choice, QuestionType.true_false) and payload.options is not None:
+    if payload.type not in option_types and payload.options is not None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "VALIDATION_ERROR", "message": "options are only allowed for choice and true_false questions"},
@@ -210,7 +211,7 @@ def query_questions_page(
             func.lower(func.coalesce(sql_cast(QuestionRow.options, String), "")).like(keyword_pattern),
         ]
         if search_answers:
-            search_conditions.append(func.lower(QuestionRow.answer).like(keyword_pattern))
+            search_conditions.append(func.lower(sql_cast(QuestionRow.answer, String)).like(keyword_pattern))
         statement = statement.where(or_(*search_conditions))
     for tag in tag_filters:
         statement = statement.where(question_has_tag(tag))

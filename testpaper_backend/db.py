@@ -52,7 +52,7 @@ class QuestionRow(Base):
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     text: Mapped[str] = mapped_column(String, nullable=False)
     options: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
-    answer: Mapped[str] = mapped_column(String, nullable=False)
+    answer: Mapped[Any] = mapped_column(JSONB, nullable=False)
     has_latex: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source: Mapped[str | None] = mapped_column(String, nullable=True)
     essay_blank_space: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

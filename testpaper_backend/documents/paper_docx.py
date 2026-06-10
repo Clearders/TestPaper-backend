@@ -201,7 +201,10 @@ def _question_paragraphs(
             paragraphs.append(_essay_answer_space(question.get("essayBlankSpace")))
 
         if include_answer and "answer" in question:
-            paragraphs.append(_paragraph_with_latex(f"Answer: {question.get('answer', '')}", italic=True, size=21))
+            ans = question.get('answer', '')
+            if isinstance(ans, list):
+                ans = ', '.join(ans)
+            paragraphs.append(_paragraph_with_latex(f"Answer: {ans}", italic=True, size=21))
 
         paragraphs.append(_paragraph(""))
 
