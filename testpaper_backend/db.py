@@ -47,7 +47,7 @@ class QuestionRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
     type: Mapped[str] = mapped_column(String(16), nullable=False)
-    subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    subjects: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     difficulty: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     text: Mapped[str] = mapped_column(String, nullable=False)

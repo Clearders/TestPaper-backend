@@ -27,7 +27,7 @@ async def list_questions(
     request: Request,
     current_user: QuestionsReadDep,
     q: str | None = None,
-    subject: str | None = None,
+    subjects: str | None = None,
     difficulty: Difficulty | None = None,
     type: QuestionType | None = None,
     tags: str | None = None,
@@ -42,7 +42,7 @@ async def list_questions(
     can_read_answers = has_permission(current_user, "answers:read")
     page_data = query_questions_page(
         q=q,
-        subject=subject,
+        subjects=subjects,
         difficulty=difficulty,
         question_type=type,
         tags=tags,
@@ -63,7 +63,7 @@ async def list_my_questions(
     request: Request,
     current_user: QuestionsReadDep,
     q: str | None = None,
-    subject: str | None = None,
+    subjects: str | None = None,
     difficulty: Difficulty | None = None,
     type: QuestionType | None = None,
     tags: str | None = None,
@@ -77,7 +77,7 @@ async def list_my_questions(
     can_read_answers = has_permission(current_user, "answers:read")
     page_data = query_questions_page(
         q=q,
-        subject=subject,
+        subjects=subjects,
         difficulty=difficulty,
         question_type=type,
         tags=tags,

@@ -54,7 +54,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 1,
             "type": "single_choice",
-            "subject": "Mathematics",
+            "subjects": ["Mathematics"],
             "difficulty": "easy",
             "tags": ["algebra"],
             "text": "What is the solution for $x$: $2x + 5 = 13$?",
@@ -70,7 +70,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 2,
             "type": "blank",
-            "subject": "Mathematics",
+            "subjects": ["Mathematics"],
             "difficulty": "medium",
             "tags": ["calculus"],
             "text": "Evaluate the integral: $$\\int_0^1 x^2 \\, dx = \\_\\_\\_$$",
@@ -86,7 +86,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 3,
             "type": "essay",
-            "subject": "Physics",
+            "subjects": ["Physics"],
             "difficulty": "medium",
             "tags": ["mechanics"],
             "text": "Newton's second law states $F = ma$. A body of mass $5\\,\\text{kg}$ experiences a net force of $20\\,\\text{N}$. Find its acceleration.",
@@ -102,7 +102,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 4,
             "type": "essay",
-            "subject": "Mathematics",
+            "subjects": ["Mathematics"],
             "difficulty": "hard",
             "tags": ["calculus", "integration"],
             "text": "Compute $\\displaystyle\\int_0^\\infty e^{-x^2}\\,dx$.",
@@ -118,7 +118,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 5,
             "type": "blank",
-            "subject": "Chemistry",
+            "subjects": ["Chemistry"],
             "difficulty": "easy",
             "tags": ["stoichiometry"],
             "text": "Balance the following equation: H2 + O2 -> H2O",
@@ -134,7 +134,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 6,
             "type": "essay",
-            "subject": "Physics",
+            "subjects": ["Physics"],
             "difficulty": "hard",
             "tags": ["electromagnetism"],
             "text": "Using Maxwell's equations, show that the speed of light in vacuum is $c = \\dfrac{1}{\\sqrt{\\mu_0 \\varepsilon_0}}$. What is its numerical value?",
@@ -150,7 +150,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 7,
             "type": "true_false",
-            "subject": "Mathematics",
+            "subjects": ["Mathematics"],
             "difficulty": "easy",
             "tags": ["geometry"],
             "text": "All squares are rectangles.",
@@ -166,7 +166,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 8,
             "type": "true_false",
-            "subject": "Physics",
+            "subjects": ["Physics"],
             "difficulty": "easy",
             "tags": ["thermodynamics"],
             "text": "Heat always flows from a colder object to a hotter object.",
@@ -182,7 +182,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 9,
             "type": "short_answer",
-            "subject": "Chemistry",
+            "subjects": ["Chemistry"],
             "difficulty": "medium",
             "tags": ["atomic-structure"],
             "text": "What is the atomic number of Carbon?",
@@ -198,7 +198,7 @@ def insert_seed_questions(now: datetime) -> None:
         {
             "id": 10,
             "type": "short_answer",
-            "subject": "Mathematics",
+            "subjects": ["Mathematics"],
             "difficulty": "medium",
             "tags": ["algebra"],
             "text": "What is the slope of the line $y = 3x + 2$?",
@@ -218,7 +218,7 @@ def insert_seed_questions(now: datetime) -> None:
             "("
             f"{question['id']}, "
             f"{sql_str(question['type'])}, "
-            f"{sql_str(question['subject'])}, "
+            f"{sql_json(question['subjects'])}, "
             f"{sql_str(question['difficulty'])}, "
             f"{sql_json(question['tags'])}, "
             f"{sql_str(question['text'])}, "
@@ -235,7 +235,7 @@ def insert_seed_questions(now: datetime) -> None:
         sa.text(
             """
             INSERT INTO questions
-                (id, type, subject, difficulty, tags, text, options, answer, has_latex, source, essay_blank_space, created_at, updated_at)
+                (id, type, subjects, difficulty, tags, text, options, answer, has_latex, source, essay_blank_space, created_at, updated_at)
             VALUES
             """
             + ",\n".join(values)
@@ -293,7 +293,7 @@ def upgrade() -> None:
         "questions",
         sa.Column("id", sa.Integer(), autoincrement=False, nullable=False),
         sa.Column("type", sa.String(length=16), nullable=False),
-        sa.Column("subject", sa.String(length=255), nullable=False),
+        sa.Column("subjects", postgresql.JSONB(), nullable=False),
         sa.Column("difficulty", sa.String(length=16), nullable=False),
         sa.Column("tags", postgresql.JSONB(), nullable=False),
         sa.Column("text", sa.String(), nullable=False),
@@ -307,7 +307,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_questions_difficulty"), "questions", ["difficulty"], unique=False)
-    op.create_index(op.f("ix_questions_subject"), "questions", ["subject"], unique=False)
 
     op.create_table(
         "papers",

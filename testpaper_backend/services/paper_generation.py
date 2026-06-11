@@ -19,7 +19,7 @@ class GenerationQuestionFeatures:
     difficulty: Difficulty
     question_type: QuestionType
     tags: frozenset[str]
-    subject: str
+    subjects: frozenset[str]
     score_weight: float
 
 
@@ -112,7 +112,7 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
         raise ValueError("At least one subject is required")
     selected_types = {t.questionType for t in payload.questionTypes}
     statement = select(QuestionRow).where(
-        func.lower(func.trim(QuestionRow.subject)).in_(subjects),
+        QuestionRow.subjects.op('?|')(subjects),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
@@ -152,7 +152,7 @@ def build_generation_features(questions: list[QuestionEntity]) -> dict[int, Gene
             difficulty=question.difficulty,
             question_type=question.type,
             tags=frozenset(tag.lower() for tag in question.tags),
-            subject=question.subject,
+            subjects=frozenset(s.lower() for s in question.subjects),
             score_weight=max(0.01, question.scoreWeight),
         )
         for question in questions
@@ -177,7 +177,7 @@ def individual_fitness(
         features = question_features[question_id]
         difficulty_counts[features.difficulty] += 1
         type_counts[features.question_type] += 1
-        subjects.add(features.subject)
+        subjects.update(features.subjects)
         tags.update(features.tags)
         score_weight_total += features.score_weight
 

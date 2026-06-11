@@ -90,7 +90,7 @@ class QuestionImage(BaseModel):
 
 class QuestionBase(BaseModel):
     type: QuestionType
-    subject: str = Field(min_length=1)
+    subjects: list[str] = Field(min_length=1)
     difficulty: Difficulty
     tags: list[str] = Field(default_factory=list)
     text: str = Field(min_length=1)
@@ -119,6 +119,7 @@ class QuestionBase(BaseModel):
             self.essayBlankSpace = None
 
         self.tags = [tag.strip() for tag in self.tags if tag and tag.strip()]
+        self.subjects = [s.strip() for s in self.subjects if s and s.strip()]
         if self.options is not None:
             self.options = [option.strip() for option in self.options if option and option.strip()]
         if self.source is not None:
@@ -144,7 +145,7 @@ class QuestionCreate(QuestionBase):
 
 class QuestionUpdate(BaseModel):
     type: QuestionType | None = None
-    subject: str | None = Field(default=None, min_length=1)
+    subjects: list[str] | None = None
     difficulty: Difficulty | None = None
     tags: list[str] | None = None
     text: str | None = Field(default=None, min_length=1)

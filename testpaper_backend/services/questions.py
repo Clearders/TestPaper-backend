@@ -30,7 +30,7 @@ QUESTION_SORT_COLUMNS = {
     "id": QuestionRow.id,
     "createdAt": QuestionRow.created_at,
     "updatedAt": QuestionRow.updated_at,
-    "subject": func.lower(QuestionRow.subject),
+    "subjects": func.lower(func.coalesce(QuestionRow.subjects[1].as_string(), "")),
     "difficulty": QuestionRow.difficulty,
     "type": QuestionRow.type,
 }
@@ -70,13 +70,14 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> Qu
         data["essayBlankSpace"] = None
 
     data["tags"] = [tag.strip() for tag in (data.get("tags") or []) if tag and tag.strip()]
+    data["subjects"] = [s.strip() for s in (data.get("subjects") or []) if s and s.strip()]
     if data.get("source") is not None:
         data["source"] = data["source"].strip() or None
 
     try:
         normalized = QuestionCreate(
             type=data["type"],
-            subject=data["subject"],
+            subjects=data.get("subjects") or [],
             difficulty=data["difficulty"],
             tags=data.get("tags") or [],
             text=data["text"],
@@ -175,7 +176,7 @@ def question_has_tag(tag: str):
 
 def query_questions_page(
     q: str | None = None,
-    subject: str | None = None,
+    subjects: str | None = None,
     difficulty: Difficulty | None = None,
     question_type: QuestionType | None = None,
     tags: str | None = None,
@@ -191,8 +192,14 @@ def query_questions_page(
     keyword = q.lower().strip() if q else None
 
     statement = select(QuestionRow)
-    if subject:
-        statement = statement.where(QuestionRow.subject == subject)
+    if subjects:
+        subject_list = [s.strip().lower() for s in subjects.split(",") if s.strip()]
+        if subject_list:
+            subject_conditions = [
+                func.lower(func.coalesce(sql_cast(QuestionRow.subjects, String), "")).contains(s)
+                for s in subject_list
+            ]
+            statement = statement.where(or_(*subject_conditions))
     if difficulty:
         statement = statement.where(QuestionRow.difficulty == difficulty.value)
     if question_type:
@@ -205,7 +212,7 @@ def query_questions_page(
         keyword_pattern = f"%{keyword}%"
         search_conditions = [
             func.lower(QuestionRow.text).like(keyword_pattern),
-            func.lower(QuestionRow.subject).like(keyword_pattern),
+            func.lower(func.coalesce(sql_cast(QuestionRow.subjects, String), "")).like(keyword_pattern),
             func.lower(func.coalesce(QuestionRow.source, "")).like(keyword_pattern),
             func.lower(func.coalesce(sql_cast(QuestionRow.tags, String), "")).like(keyword_pattern),
             func.lower(func.coalesce(sql_cast(QuestionRow.options, String), "")).like(keyword_pattern),

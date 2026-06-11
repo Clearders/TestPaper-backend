@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from fastapi import APIRouter, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from testpaper_backend.api.dependencies import QuestionsReadDep
 from testpaper_backend.core.responses import envelope
@@ -15,7 +15,11 @@ router = APIRouter(prefix="/api/v1/meta", tags=["metadata"])
 @router.get("/subjects")
 async def list_subjects(request: Request, current_user: QuestionsReadDep):
     with SessionLocal() as session:
-        subjects = session.scalars(select(QuestionRow.subject).distinct().order_by(QuestionRow.subject)).all()
+        subjects = session.scalars(
+            select(func.jsonb_array_elements_text(QuestionRow.subjects).label("value"))
+            .distinct()
+            .order_by("value")
+        ).all()
     return envelope(list(subjects), request)
 
 
