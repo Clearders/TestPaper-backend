@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
@@ -11,10 +10,8 @@ from sqlalchemy import func
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import PAPERS, QUESTIONS
 from testpaper_backend.schemas import QuestionOrder, QuestionType
-from testpaper_backend.services.papers import build_export_questions, paper_to_dict
+from testpaper_backend.services.papers import build_export_questions
 from testpaper_backend.worker.celery_app import BaseTask
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +94,7 @@ def export_paper_task(
     resolved = build_export_questions(paper, order, include_answer=include_answer)
 
     result: dict[str, Any] = {
-        "paper": paper_to_dict(paper),
+        "paper": paper.model_dump(mode="json"),
         "questions": resolved,
         "exportedAt": datetime.now(UTC).isoformat(),
         "format": format,
@@ -192,15 +189,6 @@ def validate_all_questions_task(self: BaseTask) -> dict[str, Any]:
         "missing": summary.get("missing", 0),
         "results": results,
     }
-
-
-# ---------------------------------------------------------------------------
-# LaTeX rendering placeholder. Real rendering needs a LaTeX engine.
-# ---------------------------------------------------------------------------
-@shared_task(name="detect_latex_questions", bind=True, base=BaseTask)
-def detect_latex_questions_task(self: BaseTask) -> list[int]:
-    """Return IDs of all questions that contain LaTeX markup."""
-    return [qid for qid, q in QUESTIONS.items() if q.hasLatex]
 
 
 # ---------------------------------------------------------------------------

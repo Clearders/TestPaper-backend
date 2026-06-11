@@ -55,13 +55,8 @@ def get_api_port() -> int:
         raise RuntimeError("API_PORT must be an integer.") from exc
 
 
-def get_redis_url(*, required: bool = False) -> str | None:
-    raw = os.getenv("REDIS_URL")
-    if not raw:
-        if required:
-            return DEFAULT_REDIS_URL
-        return DEFAULT_REDIS_URL
-    return raw
+def get_redis_url() -> str:
+    return os.getenv("REDIS_URL", DEFAULT_REDIS_URL)
 
 
 def get_auth_cookie_name() -> str:

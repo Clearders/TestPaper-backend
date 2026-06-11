@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
-DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE
 
 
 def parse_args() -> argparse.Namespace:

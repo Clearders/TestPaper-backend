@@ -171,10 +171,6 @@ class QuestionRef(BaseModel):
     marks: int | None = Field(default=None, gt=0)
 
 
-class PaperQuestion(QuestionRef):
-    pass
-
-
 class PaperBase(BaseModel):
     title: str = Field(min_length=1)
     subject: str = Field(min_length=1)
@@ -207,7 +203,7 @@ class PaperUpdate(BaseModel):
 class PaperEntity(PaperBase):
     id: int
     publicId: str
-    questions: list[PaperQuestion]
+    questions: list[QuestionRef]
     status: PaperStatus = PaperStatus.draft
     createdAt: datetime
     updatedAt: datetime
@@ -218,18 +214,28 @@ class GenerationTypeTarget(BaseModel):
     count: int = Field(gt=0)
 
 
-class PaperGenerateRequest(PaperBase):
+class PaperGenerateRequest(BaseModel):
+    title: str = Field(min_length=1)
+    duration: int = Field(gt=0)
+    totalMarks: int = Field(gt=0)
     difficultyCoefficient: float = Field(ge=0, le=1)
     questionTypes: list[GenerationTypeTarget] = Field(min_length=1)
     ownQuestionsOnly: bool = False
     requiredTags: list[str] = Field(default_factory=list)
     preferredTags: list[str] = Field(default_factory=list)
+    subjects: list[str] = Field(default_factory=list, min_length=1)
+    subject: str = Field(default="-", min_length=1)
 
     @model_validator(mode="after")
     def normalize_generation_request(self):
+        self.title = self.title.strip()
         self.difficultyCoefficient = round(self.difficultyCoefficient, 2)
         self.requiredTags = [tag.strip().lower() for tag in self.requiredTags if tag and tag.strip()]
         self.preferredTags = [tag.strip().lower() for tag in self.preferredTags if tag and tag.strip()]
+        self.subjects = [s.strip() for s in self.subjects if s.strip()]
+        self.subject = ", ".join(self.subjects) if self.subjects else "-"
+        if not self.title:
+            raise ValueError("title is required")
         return self
 
 
@@ -243,7 +249,6 @@ class QuestionOrderUpdate(BaseModel):
 
 
 class ExportPreviewRequest(BaseModel):
-    format: Literal["json"] = "json"
     includeAnswer: bool = True
     questionOrder: QuestionOrder = QuestionOrder.paper
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from sqlalchemy import func, select
@@ -10,7 +11,7 @@ from testpaper_backend.schemas import (
     Difficulty,
     EssayBlankSpace,
     PaperEntity,
-    PaperQuestion,
+    QuestionRef,
     PaperStatus,
     QuestionBase,
     QuestionEntity,
@@ -93,7 +94,7 @@ def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
     answer = value.answer if isinstance(value, QuestionBase) else value.get("answer", "")
     options = value.options if isinstance(value, QuestionBase) else value.get("options")
     options_text = "".join(options or [])
-    return bool(__import__("re").search(r"(\$\$[^$]+\$\$|\$[^$]+\$)", f"{text}{answer}{options_text}"))
+    return bool(re.search(r"(\$\$[^$]+\$\$|\$[^$]+\$)", f"{text}{answer}{options_text}"))
 
 
 def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
@@ -149,7 +150,7 @@ def paper_row_to_entity(row: PaperRow) -> PaperEntity:
         duration=row.duration,
         totalMarks=row.total_marks,
         questions=[
-            PaperQuestion(questionId=item.question_id, orderNo=item.order_no, marks=item.marks)
+            QuestionRef(questionId=item.question_id, orderNo=item.order_no, marks=item.marks)
             for item in sorted(row.questions, key=lambda item: item.order_no)
         ],
         status=PaperStatus(row.status),

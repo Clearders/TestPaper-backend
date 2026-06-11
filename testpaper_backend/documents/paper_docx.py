@@ -13,10 +13,10 @@ from urllib.parse import unquote, urlsplit
 from xml.sax.saxutils import escape
 
 from testpaper_backend.schemas import PaperEntity
+from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("ExamPaperTemplate.docx")
-DEFAULT_IMAGE_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploaded-images"
 _DOCX_NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
@@ -645,7 +645,7 @@ def _read_uploaded_image(url: str) -> bytes | None:
     if not filename.lower().endswith(".png"):
         return None
 
-    image_path = DEFAULT_IMAGE_UPLOAD_DIR / filename
+    image_path = IMAGE_UPLOAD_DIR / filename
     if not image_path.is_file():
         return None
     return image_path.read_bytes()

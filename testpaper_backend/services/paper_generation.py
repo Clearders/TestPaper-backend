@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import normalize_question_type, question_row_to_entity
-from testpaper_backend.schemas import Difficulty, PaperGenerateRequest, PaperQuestion, QuestionEntity, QuestionType
+from testpaper_backend.schemas import Difficulty, PaperGenerateRequest, QuestionEntity, QuestionRef, QuestionType
 
 
 @dataclass(frozen=True)
@@ -63,12 +63,6 @@ def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[
     return marks
 
 
-def resolve_generation_question_count(payload: PaperGenerateRequest, candidates: list[QuestionEntity]) -> int:
-    average_weight = sum(max(0.01, question.scoreWeight) for question in candidates) / len(candidates)
-    estimated_count = max(1, round(payload.totalMarks / max(0.01, average_weight)))
-    return max(1, min(estimated_count, payload.totalMarks, len(candidates), 100))
-
-
 def difficulty_targets_from_coefficient(coefficient: float, question_count: int) -> dict[Difficulty, int]:
     anchors = {
         Difficulty.easy: 0.0,
@@ -113,10 +107,12 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 
 
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
-    subject = payload.subject.strip()
+    subjects = [s.strip().lower() for s in payload.subjects if s.strip()]
+    if not subjects:
+        raise ValueError("At least one subject is required")
     selected_types = {t.questionType for t in payload.questionTypes}
     statement = select(QuestionRow).where(
-        func.lower(func.trim(QuestionRow.subject)) == subject.lower(),
+        func.lower(func.trim(QuestionRow.subject)).in_(subjects),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
@@ -131,15 +127,16 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
             if row_type in selected_types:
                 candidates.append(question_row_to_entity(row))
     if not candidates:
+        subject_str = ", ".join(payload.subjects)
         source_message = " in your question bank" if owner_id is not None else ""
         type_names = ", ".join(t.value for t in selected_types)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least 1 question of types [{type_names}] for {subject}{source_message}, found 0.",
+                "message": f"Need at least 1 question of types [{type_names}] for {subject_str}{source_message}, found 0.",
                 "details": {
-                    "subject": subject,
+                    "subject": subject_str,
                     "questionTypes": [t.value for t in selected_types],
                     "candidateCount": 0,
                     "ownQuestionsOnly": owner_id is not None,
@@ -268,7 +265,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         marks = distribute_marks(selected_questions, payload.totalMarks)
         return {
             "paperQuestions": [
-                PaperQuestion(questionId=question.id, orderNo=index + 1, marks=marks[index])
+                QuestionRef(questionId=question.id, orderNo=index + 1, marks=marks[index])
                 for index, question in enumerate(selected_questions)
             ],
             "selectedQuestions": selected_questions,
@@ -338,7 +335,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
     selected_questions = [question_by_id[question_id] for question_id in best]
     marks = distribute_marks(selected_questions, payload.totalMarks)
     paper_questions = [
-        PaperQuestion(questionId=question.id, orderNo=index + 1, marks=marks[index])
+        QuestionRef(questionId=question.id, orderNo=index + 1, marks=marks[index])
         for index, question in enumerate(selected_questions)
     ]
     diagnostics = {

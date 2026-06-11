@@ -41,4 +41,4 @@ class BaseTask(Task):
 
 
 # Auto-discover tasks after BaseTask is defined so task modules can import it.
-celery.autodiscover_tasks(["testpaper_backend.worker"], force=True)
+celery.autodiscover_tasks(["testpaper_backend.worker"])

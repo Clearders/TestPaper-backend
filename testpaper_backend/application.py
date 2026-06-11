@@ -9,7 +9,6 @@ from testpaper_backend.core.lifespan import lifespan
 from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 
 app = create_app(lifespan=lifespan)
-IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/v1/images/files",
     StaticFiles(directory=str(IMAGE_UPLOAD_DIR)),

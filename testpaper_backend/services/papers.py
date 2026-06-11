@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import HTTPException, status
 
 from testpaper_backend.repositories import PAPERS, QUESTIONS
 from testpaper_backend.schemas import PaperEntity, QuestionOrder, QuestionRef, QuestionType
 from testpaper_backend.services.questions import question_to_dict
-
-
-def paper_to_dict(paper: PaperEntity) -> dict[str, Any]:
-    return paper.model_dump(mode="json")
 
 
 def get_paper_or_404(paper_id: int) -> PaperEntity:
@@ -39,7 +33,7 @@ def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str)
 
 
 def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dict[str, Any]:
-    normalized = paper_to_dict(paper)
+    normalized = paper.model_dump(mode="json")
     normalized["questions"] = sorted(normalized["questions"], key=lambda item: item["orderNo"])
     resolved_questions = []
     for item in normalized["questions"]:

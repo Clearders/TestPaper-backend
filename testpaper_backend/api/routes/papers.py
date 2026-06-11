@@ -14,7 +14,7 @@ from testpaper_backend.schemas import (
     PaperCreate,
     PaperEntity,
     PaperGenerateRequest,
-    PaperQuestion,
+    QuestionRef,
     PaperStatus,
     PaperUpdate,
     QuestionOrder,
@@ -26,7 +26,6 @@ from testpaper_backend.services.paper_generation import generate_paper_with_gene
 from testpaper_backend.services.papers import (
     build_export_questions,
     get_paper_or_404,
-    paper_to_dict,
     paper_with_questions,
     validate_unique_question_refs,
 )
@@ -49,13 +48,13 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Pap
         subject=payload.subject,
         duration=payload.duration,
         totalMarks=payload.totalMarks,
-        questions=[PaperQuestion(**item.model_dump()) for item in sorted(payload.questions, key=lambda item: item.orderNo)],
+        questions=[QuestionRef(**item.model_dump()) for item in sorted(payload.questions, key=lambda item: item.orderNo)],
         status=PaperStatus.draft,
         createdAt=now_utc(),
         updatedAt=now_utc(),
     )
     paper = PAPERS.create(paper)
-    await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
+    await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -77,7 +76,7 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
     )
     paper = PAPERS.create(paper)
     paper_payload = paper_with_questions(paper)
-    await realtime.broadcast("paper.created", {"paper": paper_to_dict(paper), "actorId": current_user.id})
+    await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     return envelope(
         {
             "paper": paper_payload,
@@ -98,7 +97,7 @@ async def get_paper(
     paper = get_paper_or_404(paper_id)
     if expand == "questions":
         return envelope(paper_with_questions(paper, include_answer=includeAnswer and has_permission(current_user, "answers:read")), request)
-    return envelope(paper_to_dict(paper), request)
+    return envelope(paper.model_dump(mode="json"), request)
 
 
 @router.patch("/{paper_id}")
@@ -143,12 +142,12 @@ async def add_paper_questions(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"code": "VALIDATION_ERROR", "message": "orderNo already exists in paper"},
             )
-        additions.append(PaperQuestion(**item.model_dump()))
+        additions.append(QuestionRef(**item.model_dump()))
     paper.questions.extend(additions)
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper_id] = paper
-    await realtime.broadcast("paper.questions.added", {"paper": paper_to_dict(paper), "actorId": current_user.id})
+    await realtime.broadcast("paper.questions.added", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -171,7 +170,7 @@ async def remove_paper_question(
     PAPERS[paper_id] = paper
     await realtime.broadcast(
         "paper.question.removed",
-        {"paper": paper_to_dict(paper), "questionId": question_id, "actorId": current_user.id},
+        {"paper": paper.model_dump(mode="json"), "questionId": question_id, "actorId": current_user.id},
     )
     return envelope(paper_with_questions(paper), request)
 
@@ -193,13 +192,13 @@ async def reorder_paper_questions(
             detail={"code": "VALIDATION_ERROR", "message": "orders must include every question in the paper"},
         )
     paper.questions = [
-        PaperQuestion(questionId=item.questionId, orderNo=order_map[item.questionId], marks=item.marks)
+        QuestionRef(questionId=item.questionId, orderNo=order_map[item.questionId], marks=item.marks)
         for item in paper.questions
     ]
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper_id] = paper
-    await realtime.broadcast("paper.questions.reordered", {"paper": paper_to_dict(paper), "actorId": current_user.id})
+    await realtime.broadcast("paper.questions.reordered", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     return envelope(paper_with_questions(paper), request)
 
 
@@ -214,7 +213,7 @@ async def export_preview(
     questions = build_export_questions(paper, payload.questionOrder, payload.includeAnswer and has_permission(current_user, "answers:read"))
     return envelope(
         {
-            "paper": paper_to_dict(paper),
+            "paper": paper.model_dump(mode="json"),
             "questions": questions,
             "renderHint": payload.model_dump(),
         },

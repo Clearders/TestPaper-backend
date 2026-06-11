@@ -40,12 +40,6 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return _verify_pbkdf2(password, stored_hash)
 
 
-def needs_rehash(stored_hash: str) -> bool:
-    if stored_hash.startswith("$argon2"):
-        return _ph.check_needs_rehash(stored_hash)
-    return True
-
-
 def permissions_for_role(role: UserRole | str) -> list[Permission]:
     normalized_role = role if isinstance(role, UserRole) else UserRole(role)
     return sorted(ROLE_PERMISSIONS[normalized_role])

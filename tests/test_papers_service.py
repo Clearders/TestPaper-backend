@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from testpaper_backend.schemas import Difficulty, PaperEntity, PaperQuestion, QuestionEntity, QuestionOrder, QuestionType
+from testpaper_backend.schemas import Difficulty, PaperEntity, QuestionEntity, QuestionOrder, QuestionRef, QuestionType
 from testpaper_backend.services import papers
 
 
@@ -39,11 +39,11 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
         duration=60,
         totalMarks=100,
         questions=[
-            PaperQuestion(questionId=1, orderNo=1, marks=10),
-            PaperQuestion(questionId=2, orderNo=2, marks=5),
-            PaperQuestion(questionId=3, orderNo=3, marks=8),
-            PaperQuestion(questionId=4, orderNo=4, marks=6),
-            PaperQuestion(questionId=5, orderNo=5, marks=4),
+            QuestionRef(questionId=1, orderNo=1, marks=10),
+            QuestionRef(questionId=2, orderNo=2, marks=5),
+            QuestionRef(questionId=3, orderNo=3, marks=8),
+            QuestionRef(questionId=4, orderNo=4, marks=6),
+            QuestionRef(questionId=5, orderNo=5, marks=4),
         ],
         createdAt=datetime(2026, 5, 19, tzinfo=UTC),
         updatedAt=datetime(2026, 5, 19, tzinfo=UTC),
