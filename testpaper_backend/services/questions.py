@@ -143,8 +143,8 @@ def question_to_dict(question: QuestionEntity, include_answer: bool = True) -> d
     return payload
 
 
-def get_question_or_404(question_id: int) -> QuestionEntity:
-    question = QUESTIONS.get(question_id)
+def get_question_or_404(question_public_id: str) -> QuestionEntity:
+    question = QUESTIONS.get_by_public_id(question_public_id)
     if question is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "QUESTION_NOT_FOUND", "message": "Question not found"})
     return question

@@ -7,8 +7,8 @@ from testpaper_backend.schemas import PaperEntity, QuestionOrder, QuestionRef, Q
 from testpaper_backend.services.questions import question_to_dict
 
 
-def get_paper_or_404(paper_id: int) -> PaperEntity:
-    paper = PAPERS.get(paper_id)
+def get_paper_or_404(paper_public_id: str) -> PaperEntity:
+    paper = PAPERS.get_by_public_id(paper_public_id)
     if paper is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -18,7 +18,7 @@ def get_paper_or_404(paper_id: int) -> PaperEntity:
 
 
 def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str) -> None:
-    question_ids = [item.questionId for item in items]
+    question_ids = [item.questionPublicId for item in items]
     order_nos = [item.orderNo for item in items]
     if len(question_ids) != len(set(question_ids)):
         raise HTTPException(
@@ -37,7 +37,7 @@ def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dic
     normalized["questions"] = sorted(normalized["questions"], key=lambda item: item["orderNo"])
     resolved_questions = []
     for item in normalized["questions"]:
-        question = QUESTIONS.get(item["questionId"])
+        question = QUESTIONS.get_by_public_id(item["questionPublicId"])
         if question is None:
             continue
         resolved_questions.append({

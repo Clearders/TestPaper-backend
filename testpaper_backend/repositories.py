@@ -142,6 +142,13 @@ def question_entity_to_row_kwargs(question: QuestionEntity) -> dict[str, Any]:
 
 
 def paper_row_to_entity(row: PaperRow) -> PaperEntity:
+    question_ids = [item.question_id for item in row.questions]
+    if question_ids:
+        with SessionLocal() as session:
+            rows = session.scalars(select(QuestionRow).where(QuestionRow.id.in_(question_ids))).all()
+            public_id_map = {r.id: r.public_id for r in rows}
+    else:
+        public_id_map = {}
     return PaperEntity(
         id=row.id,
         publicId=row.public_id,
@@ -150,7 +157,7 @@ def paper_row_to_entity(row: PaperRow) -> PaperEntity:
         duration=row.duration,
         totalMarks=row.total_marks,
         questions=[
-            QuestionRef(questionId=item.question_id, orderNo=item.order_no, marks=item.marks)
+            QuestionRef(questionPublicId=public_id_map.get(item.question_id, ""), orderNo=item.order_no, marks=item.marks)
             for item in sorted(row.questions, key=lambda item: item.order_no)
         ],
         status=PaperStatus(row.status),
@@ -199,6 +206,15 @@ class QuestionStore:
         with SessionLocal() as session:
             row = cast(QuestionRow | None, session.get(QuestionRow, question_id))
             return None if row is None else question_row_to_entity(row)
+
+    def get_by_public_id(self, public_id: str) -> QuestionEntity | None:
+        with SessionLocal() as session:
+            row = cast(QuestionRow | None, session.scalars(
+                select(QuestionRow).where(QuestionRow.public_id == public_id)
+            ).first())
+            if row is None:
+                return None
+            return question_row_to_entity(row)
 
     def __getitem__(self, question_id: int) -> QuestionEntity:
         question = self.get(question_id)
@@ -268,6 +284,15 @@ class PaperStore:
             ).first())
             return None if row is None else paper_row_to_entity(row)
 
+    def get_by_public_id(self, public_id: str) -> PaperEntity | None:
+        with SessionLocal() as session:
+            row = cast(PaperRow | None, session.scalars(
+                select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.public_id == public_id)
+            ).first())
+            if row is None:
+                return None
+            return paper_row_to_entity(row)
+
     def __getitem__(self, paper_id: int) -> PaperEntity:
         paper = self.get(paper_id)
         if paper is None:
@@ -277,7 +302,7 @@ class PaperStore:
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
         question_rows = [
-            PaperQuestionRow(question_id=item.questionId, order_no=item.orderNo, marks=item.marks)
+            PaperQuestionRow(question_id=QUESTIONS.get_by_public_id(item.questionPublicId).id, order_no=item.orderNo, marks=item.marks)
             for item in sorted(payload.questions, key=lambda item: item.orderNo)
         ]
         row_kwargs = paper_entity_to_row_kwargs(payload)
@@ -297,7 +322,7 @@ class PaperStore:
 
     def create(self, paper: PaperEntity) -> PaperEntity:
         question_rows = [
-            PaperQuestionRow(question_id=item.questionId, order_no=item.orderNo, marks=item.marks)
+            PaperQuestionRow(question_id=QUESTIONS.get_by_public_id(item.questionPublicId).id, order_no=item.orderNo, marks=item.marks)
             for item in sorted(paper.questions, key=lambda item: item.orderNo)
         ]
         row_kwargs = paper_entity_to_row_kwargs(paper)

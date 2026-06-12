@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+T = TypeVar("T")
 
 
 class QuestionType(StrEnum):
@@ -169,7 +171,7 @@ class QuestionEntity(QuestionBase):
 
 
 class QuestionRef(BaseModel):
-    questionId: int = Field(gt=0)
+    questionPublicId: str = Field(min_length=1)
     orderNo: int = Field(gt=0)
     marks: int | None = Field(default=None, gt=0)
 
@@ -246,7 +248,7 @@ class PaperGenerateRequest(BaseModel):
 
 
 class QuestionOrderItem(BaseModel):
-    questionId: int = Field(gt=0)
+    questionPublicId: str = Field(min_length=1)
     orderNo: int = Field(gt=0)
 
 
@@ -407,3 +409,25 @@ class QuestionRevisionEntity(BaseModel):
     patch: dict[str, Any]
     changeSummary: str
     createdAt: datetime
+
+
+class MetaInfo(BaseModel):
+    requestId: str
+
+
+class Envelope(BaseModel, Generic[T]):
+    success: bool = True
+    data: T
+    meta: MetaInfo
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    details: Any | None = None
+
+
+class ErrorEnvelope(BaseModel):
+    success: bool = False
+    error: ErrorDetail
+    meta: MetaInfo

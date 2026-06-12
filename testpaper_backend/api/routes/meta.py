@@ -8,11 +8,12 @@ from sqlalchemy import func, select
 from testpaper_backend.api.dependencies import QuestionsReadDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import QuestionRow, SessionLocal
+from testpaper_backend.schemas import Envelope
 
 router = APIRouter(prefix="/api/v1/meta", tags=["metadata"])
 
 
-@router.get("/subjects")
+@router.get("/subjects", response_model=Envelope[list[str]])
 async def list_subjects(request: Request, current_user: QuestionsReadDep):
     with SessionLocal() as session:
         subjects = session.scalars(
@@ -23,7 +24,7 @@ async def list_subjects(request: Request, current_user: QuestionsReadDep):
     return envelope(list(subjects), request)
 
 
-@router.get("/tags")
+@router.get("/tags", response_model=Envelope[list[str]])
 async def list_tags(request: Request, current_user: QuestionsReadDep):
     with SessionLocal() as session:
         tag_lists = session.scalars(select(QuestionRow.tags)).all()

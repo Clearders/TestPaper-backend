@@ -265,7 +265,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         marks = distribute_marks(selected_questions, payload.totalMarks)
         return {
             "paperQuestions": [
-                QuestionRef(questionId=question.id, orderNo=index + 1, marks=marks[index])
+                QuestionRef(questionPublicId=question.publicId, orderNo=index + 1, marks=marks[index])
                 for index, question in enumerate(selected_questions)
             ],
             "selectedQuestions": selected_questions,
@@ -335,7 +335,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
     selected_questions = [question_by_id[question_id] for question_id in best]
     marks = distribute_marks(selected_questions, payload.totalMarks)
     paper_questions = [
-        QuestionRef(questionId=question.id, orderNo=index + 1, marks=marks[index])
+        QuestionRef(questionPublicId=question.publicId, orderNo=index + 1, marks=marks[index])
         for index, question in enumerate(selected_questions)
     ]
     diagnostics = {

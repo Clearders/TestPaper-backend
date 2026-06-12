@@ -5,12 +5,14 @@ from typing import Any
 from fastapi import Request
 
 
+from testpaper_backend.schemas import Envelope, MetaInfo
+
+
 def envelope(data: Any, request: Request) -> dict[str, Any]:
-    return {
-        "success": True,
-        "data": data,
-        "meta": {"requestId": request.state.request_id},
-    }
+    return Envelope(
+        data=data,
+        meta=MetaInfo(requestId=request.state.request_id),
+    ).model_dump(mode="json")
 
 
 def error_envelope(code: str, message: str, request: Request, details: Any | None = None) -> dict[str, Any]:

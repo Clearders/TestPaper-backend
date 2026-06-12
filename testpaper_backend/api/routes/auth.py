@@ -11,11 +11,15 @@ from testpaper_backend.core.csrf import clear_csrf_cookie, generate_csrf_token, 
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import (
+    AuthSession,
+    Envelope,
     ImageUploadPayload,
+    ImageUploadResponse,
     LoginRequest,
     PasswordChange,
     ProfileUpdate,
     RegisterRequest,
+    UserEntity,
     UserRole,
 )
 from testpaper_backend.security import (
@@ -37,7 +41,7 @@ from testpaper_backend.time_utils import now_utc
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-@router.post("/login")
+@router.post("/login", response_model=Envelope[AuthSession])
 async def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
     username = payload.username.strip().lower()
     with SessionLocal() as session:
@@ -51,7 +55,7 @@ async def login(request: Request, response: Response, payload: LoginRequest, _: 
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=Envelope[AuthSession], status_code=status.HTTP_201_CREATED)
 async def register(request: Request, response: Response, payload: RegisterRequest, _: RateLimitRegisterDep):
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
@@ -80,12 +84,12 @@ async def register(request: Request, response: Response, payload: RegisterReques
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
-@router.get("/me")
+@router.get("/me", response_model=Envelope[UserEntity])
 async def get_me(request: Request, current_user: CurrentUserDep):
     return envelope(current_user.model_dump(mode="json"), request)
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=Envelope[AuthSession])
 async def refresh_session(request: Request, response: Response):
     token, auth_session = refresh_auth_session(get_request_token(request))
     set_auth_cookie(response, token, auth_session.expiresAt)
@@ -106,7 +110,7 @@ async def logout(request: Request):
     return response
 
 
-@router.patch("/profile")
+@router.patch("/profile", response_model=Envelope[UserEntity])
 async def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep):
     with SessionLocal() as session:
         user_row = cast(UserRow, session.get(UserRow, current_user.id))
@@ -154,7 +158,7 @@ async def change_password(payload: PasswordChange, current_user: CurrentUserDep)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/avatar")
+@router.post("/avatar", response_model=Envelope[ImageUploadResponse])
 async def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep):
     avatar_url = store_avatar(payload, current_user.publicId)
     with SessionLocal() as session:
@@ -167,7 +171,6 @@ async def upload_avatar(request: Request, payload: ImageUploadPayload, current_u
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_account(request: Request, current_user: CurrentUserDep):
-    token = get_request_token(request)
     with SessionLocal() as session:
         session.execute(
             delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)

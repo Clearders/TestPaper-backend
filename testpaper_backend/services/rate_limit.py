@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import logging
+
+import redis
 from fastapi import HTTPException, Request, status
 
 from testpaper_backend.redis_client import get_redis
+
+logger = logging.getLogger(__name__)
 
 RATE_LIMIT_KEY_PREFIX = "rate_limit:"
 
@@ -18,13 +23,16 @@ def get_client_ip(request: Request) -> str:
 
 
 def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
-    redis_key = f"{RATE_LIMIT_KEY_PREFIX}{key}"
-    client = get_redis()
-    current = client.incr(redis_key)
-    if current == 1:
-        client.expire(redis_key, window_seconds)
-    if current > max_attempts:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": "RATE_LIMITED", "message": "Too many requests. Please try again later."},
-        )
+    try:
+        redis_key = f"{RATE_LIMIT_KEY_PREFIX}{key}"
+        client = get_redis()
+        current = client.incr(redis_key)
+        if current == 1:
+            client.expire(redis_key, window_seconds)
+        if current > max_attempts:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={"code": "RATE_LIMITED", "message": "Too many requests. Please try again later."},
+            )
+    except (redis.ConnectionError, redis.RedisError):
+        logger.warning("Redis unavailable, rate limiting skipped for key '%s'", key)
