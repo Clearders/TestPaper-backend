@@ -8,6 +8,8 @@ from fastapi import APIRouter, Query, Request
 from testpaper_backend.api.dependencies import PapersReadDep, QuestionsReadDep, UsersManageDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.security import has_permission
+from testpaper_backend.services.papers import get_paper_or_404
+from testpaper_backend.services.questions import get_question_or_404
 from testpaper_backend.worker.celery_app import celery
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -41,19 +43,20 @@ async def task_status(request: Request, task_id: str, current_user: QuestionsRea
     return envelope(response_data, request)
 
 
-@router.post("/export-paper/{paper_id}")
+@router.post("/export-paper/{paper_public_id}")
 async def task_export_paper(
     request: Request,
-    paper_id: int,
+    paper_public_id: str,
     current_user: PapersReadDep,
     question_order: str = Query(default="paper", pattern="^(paper|categorized)$"),
     include_answer: bool = Query(default=True),
     export_format: str = Query(default="json", alias="format", pattern="^(json|csv|txt)$"),
 ):
     """Dispatch an asynchronous paper export. Returns a task ID for polling."""
+    paper = get_paper_or_404(paper_public_id)
     result = celery.send_task(
         "export_paper",
-        args=[paper_id],
+        args=[paper.id],
         kwargs={
             "question_order": question_order,
             "include_answer": include_answer and has_permission(current_user, "answers:read"),
@@ -61,7 +64,7 @@ async def task_export_paper(
         },
     )
     return envelope(
-        {"taskId": result.id, "status": "dispatched", "paperId": paper_id},
+        {"taskId": result.id, "status": "dispatched", "paperId": paper_public_id},
         request,
     )
 
@@ -76,15 +79,16 @@ async def task_validate_all_questions(
     return envelope({"taskId": result.id, "status": "dispatched"}, request)
 
 
-@router.post("/validate-question/{question_id}")
+@router.post("/validate-question/{question_public_id}")
 async def task_validate_question(
     request: Request,
-    question_id: int,
+    question_public_id: str,
     current_user: QuestionsReadDep,
 ):
     """Dispatch an async validation of a single question."""
-    result = celery.send_task("validate_question", args=[question_id])
-    return envelope({"taskId": result.id, "status": "dispatched", "questionId": question_id}, request)
+    question = get_question_or_404(question_public_id)
+    result = celery.send_task("validate_question", args=[question.id])
+    return envelope({"taskId": result.id, "status": "dispatched", "questionId": question_public_id}, request)
 
 
 @router.post("/cleanup-expired-sessions")

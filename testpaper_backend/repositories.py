@@ -256,6 +256,16 @@ class QuestionStore:
 
 
 class PaperStore:
+    @staticmethod
+    def _resolve_question_refs(questions: list[QuestionRef]) -> list[PaperQuestionRow]:
+        rows = []
+        for item in sorted(questions, key=lambda item: item.orderNo):
+            question = QUESTIONS.get_by_public_id(item.questionPublicId)
+            if question is None:
+                raise KeyError(f"Question with publicId '{item.questionPublicId}' not found")
+            rows.append(PaperQuestionRow(question_id=question.id, order_no=item.orderNo, marks=item.marks))
+        return rows
+
     def values(self) -> list[PaperEntity]:
         with SessionLocal() as session:
             rows = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).order_by(PaperRow.id)).all()
@@ -301,10 +311,7 @@ class PaperStore:
 
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
-        question_rows = [
-            PaperQuestionRow(question_id=QUESTIONS.get_by_public_id(item.questionPublicId).id, order_no=item.orderNo, marks=item.marks)
-            for item in sorted(payload.questions, key=lambda item: item.orderNo)
-        ]
+        question_rows = self._resolve_question_refs(payload.questions)
         row_kwargs = paper_entity_to_row_kwargs(payload)
         with SessionLocal() as session:
             row = session.get(PaperRow, paper_id)
@@ -321,10 +328,7 @@ class PaperStore:
             session.commit()
 
     def create(self, paper: PaperEntity) -> PaperEntity:
-        question_rows = [
-            PaperQuestionRow(question_id=QUESTIONS.get_by_public_id(item.questionPublicId).id, order_no=item.orderNo, marks=item.marks)
-            for item in sorted(paper.questions, key=lambda item: item.orderNo)
-        ]
+        question_rows = self._resolve_question_refs(paper.questions)
         row_kwargs = paper_entity_to_row_kwargs(paper)
         row_kwargs.pop("id", None)
         with SessionLocal() as session:
