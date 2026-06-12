@@ -170,8 +170,8 @@ async def get_question_revisions(
     question_public_id: str,
     current_user: QuestionsReadDep,
 ):
-    get_question_or_404(question_public_id)
-    revisions = list_revisions(question_public_id)
+    question = get_question_or_404(question_public_id)
+    revisions = list_revisions(question.id)
     return envelope([rev.model_dump(mode="json") for rev in revisions], request)
 
 
@@ -182,8 +182,8 @@ async def create_question_correction(
     payload: QuestionCorrectionCreate,
     current_user: QuestionsReadDep,
 ):
-    get_question_or_404(question_public_id)
-    correction = create_correction(question_public_id, current_user.id, payload)
+    question = get_question_or_404(question_public_id)
+    correction = create_correction(question.id, current_user.id, payload)
     return envelope(correction.model_dump(mode="json"), request)
 
 
@@ -193,8 +193,8 @@ async def get_question_corrections(
     question_public_id: str,
     current_user: QuestionsReadDep,
 ):
-    get_question_or_404(question_public_id)
-    corrections = list_corrections(question_public_id)
+    question = get_question_or_404(question_public_id)
+    corrections = list_corrections(question.id)
     return envelope([c.model_dump(mode="json") for c in corrections], request)
 
 
@@ -212,7 +212,7 @@ async def update_question_correction(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "FORBIDDEN", "message": "Only the question owner or an administrator can manage corrections"},
         )
-    corrections = list_corrections(question_public_id)
+    corrections = list_corrections(question.id)
     if not any(c.id == correction_id for c in corrections):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -228,7 +228,8 @@ async def delete_question_revision(
     revision_id: int,
     current_user: QuestionsDeleteDep,
 ):
-    delete_revision(revision_id, question_public_id)
+    question = get_question_or_404(question_public_id)
+    delete_revision(revision_id, question.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -238,5 +239,6 @@ async def delete_question_correction(
     correction_id: int,
     current_user: QuestionsDeleteDep,
 ):
-    delete_correction_entry(correction_id, question_public_id)
+    question = get_question_or_404(question_public_id)
+    delete_correction_entry(correction_id, question.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
