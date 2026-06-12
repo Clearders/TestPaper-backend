@@ -95,6 +95,30 @@ class PaperQuestionRow(Base):
     paper: Mapped[PaperRow] = relationship(back_populates="questions")
 
 
+class QuestionRevisionRow(Base):
+    __tablename__ = "question_revisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    patch: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    change_summary: Mapped[str] = mapped_column("changeSummary", String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class QuestionCorrectionRow(Base):
+    __tablename__ = "question_corrections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(String(1000), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 DATABASE_URL = get_database_url(required=False)
 engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True) if DATABASE_URL else None
 _SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine is not None else None

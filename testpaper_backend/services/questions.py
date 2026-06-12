@@ -11,13 +11,24 @@ from pydantic import ValidationError
 from sqlalchemy import String, func, or_, select
 from sqlalchemy import cast as sql_cast
 
-from testpaper_backend.db import QuestionRow, SessionLocal, UserRow
+from testpaper_backend.db import (
+    QuestionCorrectionRow,
+    QuestionRevisionRow,
+    QuestionRow,
+    SessionLocal,
+    UserRow,
+)
 from testpaper_backend.repositories import QUESTIONS, has_latex, question_row_to_entity
 from testpaper_backend.schemas import (
+    CorrectionStatus,
     Difficulty,
     QuestionBase,
+    QuestionCorrectionCreate,
+    QuestionCorrectionEntity,
+    QuestionCorrectionUpdate,
     QuestionCreate,
     QuestionEntity,
+    QuestionRevisionEntity,
     QuestionType,
     QuestionUpdate,
     SortOrder,
@@ -48,7 +59,7 @@ def normalize_question_payload(payload: QuestionBase, question_id: int, created_
     )
 
 
-def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> QuestionEntity:
+def apply_question_update(question: QuestionEntity, patch: QuestionUpdate, current_user_id: int) -> QuestionEntity:
     data = question.model_dump()
     patch_data = patch.model_dump(exclude_unset=True)
     data.update(patch_data)
@@ -102,12 +113,27 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate) -> Qu
     normalized_data = normalized.model_dump()
     normalized_data["hasLatex"] = patch.hasLatex if patch.hasLatex is not None else has_latex(normalized)
     normalized_data["publicId"] = question.publicId
-    return QuestionEntity(
+    updated = QuestionEntity(
         id=question.id,
         createdAt=question.createdAt,
         updatedAt=now_utc(),
         **normalized_data,
     )
+
+    change_summary = generate_change_summary({k: v for k, v in patch_data.items() if k not in ("hasLatex", "ownerId")})
+    if change_summary:
+        revision = QuestionRevisionRow(
+            question_id=question.id,
+            user_id=current_user_id,
+            patch=patch_data,
+            change_summary=change_summary,
+            created_at=now_utc(),
+        )
+        with SessionLocal() as session:
+            session.add(revision)
+            session.commit()
+
+    return updated
 
 
 def question_to_dict(question: QuestionEntity, include_answer: bool = True) -> dict[str, Any]:
@@ -241,3 +267,102 @@ def query_questions_page(
             "totalPages": ceil(total / page_size) if total else 0,
         },
     }
+
+
+FIELD_DISPLAY_NAMES: dict[str, str] = {
+    "type": "type",
+    "subjects": "subjects",
+    "difficulty": "difficulty",
+    "tags": "tags",
+    "text": "text",
+    "options": "options",
+    "answer": "answer",
+    "source": "source",
+    "essayBlankSpace": "essay blank space",
+    "images": "images",
+    "scoreWeight": "score weight",
+}
+
+
+def generate_change_summary(patch: dict[str, Any]) -> str:
+    updated_fields = [FIELD_DISPLAY_NAMES.get(key, key) for key in patch if key in FIELD_DISPLAY_NAMES]
+    if not updated_fields:
+        return ""
+    return "Updated " + ", ".join(updated_fields)
+
+
+def correction_row_to_entity(row: QuestionCorrectionRow) -> QuestionCorrectionEntity:
+    return QuestionCorrectionEntity(
+        id=row.id,
+        questionId=row.question_id,
+        userId=row.user_id,
+        category=row.category,
+        message=row.message,
+        status=row.status,
+        createdAt=row.created_at,
+        updatedAt=row.updated_at,
+    )
+
+
+def revision_row_to_entity(row: QuestionRevisionRow) -> QuestionRevisionEntity:
+    return QuestionRevisionEntity(
+        id=row.id,
+        questionId=row.question_id,
+        userId=row.user_id,
+        patch=row.patch,
+        changeSummary=row.change_summary,
+        createdAt=row.created_at,
+    )
+
+
+def create_correction(question_id: int, user_id: int, payload: QuestionCorrectionCreate) -> QuestionCorrectionEntity:
+    now = now_utc()
+    row = QuestionCorrectionRow(
+        question_id=question_id,
+        user_id=user_id,
+        category=payload.category.value,
+        message=payload.message.strip(),
+        status=CorrectionStatus.open.value,
+        created_at=now,
+        updated_at=now,
+    )
+    with SessionLocal() as session:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return correction_row_to_entity(row)
+
+
+def list_corrections(question_id: int) -> list[QuestionCorrectionEntity]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(QuestionCorrectionRow)
+            .where(QuestionCorrectionRow.question_id == question_id)
+            .order_by(QuestionCorrectionRow.created_at.desc())
+        ).all()
+        return [correction_row_to_entity(row) for row in rows]
+
+
+def update_correction_status(correction_id: int, status: CorrectionStatus) -> QuestionCorrectionEntity:
+    with SessionLocal() as session:
+        row = session.get(QuestionCorrectionRow, correction_id)
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found"},
+            )
+        row.status = status.value
+        row.updated_at = now_utc()
+        session.commit()
+        session.refresh(row)
+        return correction_row_to_entity(row)
+
+
+def list_revisions(question_id: int) -> list[QuestionRevisionEntity]:
+    with SessionLocal() as session:
+        rows = session.scalars(
+            select(QuestionRevisionRow)
+            .where(QuestionRevisionRow.question_id == question_id)
+            .order_by(QuestionRevisionRow.created_at.desc())
+        ).all()
+        return [revision_row_to_entity(row) for row in rows]

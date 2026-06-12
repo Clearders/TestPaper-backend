@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -325,3 +325,45 @@ class ImageUploadResponse(BaseModel):
     url: str
     filename: str
     mimeType: str
+
+
+class CorrectionCategory(StrEnum):
+    wrong_answer = "wrong_answer"
+    unclear = "unclear"
+    typo = "typo"
+    other = "other"
+
+
+class CorrectionStatus(StrEnum):
+    open = "open"
+    accepted = "accepted"
+    rejected = "rejected"
+
+
+class QuestionCorrectionCreate(BaseModel):
+    category: CorrectionCategory
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class QuestionCorrectionUpdate(BaseModel):
+    status: CorrectionStatus
+
+
+class QuestionCorrectionEntity(BaseModel):
+    id: int
+    questionId: int
+    userId: int | None
+    category: CorrectionCategory
+    message: str
+    status: CorrectionStatus
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class QuestionRevisionEntity(BaseModel):
+    id: int
+    questionId: int
+    userId: int | None
+    patch: dict[str, Any]
+    changeSummary: str
+    createdAt: datetime
