@@ -18,6 +18,8 @@ from testpaper_backend.security import has_permission
 from testpaper_backend.services.questions import (
     apply_question_update,
     create_correction,
+    delete_correction_entry,
+    delete_revision,
     ensure_question_owner_access,
     get_question_or_404,
     list_corrections,
@@ -213,3 +215,23 @@ async def update_question_correction(
         )
     updated = update_correction_status(correction_id, payload.status)
     return envelope(updated.model_dump(mode="json"), request)
+
+
+@router.delete("/{question_id}/revisions/{revision_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question_revision(
+    question_id: int,
+    revision_id: int,
+    current_user: QuestionsDeleteDep,
+):
+    delete_revision(revision_id, question_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/{question_id}/corrections/{correction_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question_correction(
+    question_id: int,
+    correction_id: int,
+    current_user: QuestionsDeleteDep,
+):
+    delete_correction_entry(correction_id, question_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

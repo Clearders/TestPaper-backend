@@ -366,3 +366,27 @@ def list_revisions(question_id: int) -> list[QuestionRevisionEntity]:
             .order_by(QuestionRevisionRow.created_at.desc())
         ).all()
         return [revision_row_to_entity(row) for row in rows]
+
+
+def delete_revision(revision_id: int, question_id: int) -> None:
+    with SessionLocal() as session:
+        row = session.get(QuestionRevisionRow, revision_id)
+        if row is None or row.question_id != question_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "REVISION_NOT_FOUND", "message": "Revision not found for this question"},
+            )
+        session.delete(row)
+        session.commit()
+
+
+def delete_correction_entry(correction_id: int, question_id: int) -> None:
+    with SessionLocal() as session:
+        row = session.get(QuestionCorrectionRow, correction_id)
+        if row is None or row.question_id != question_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found for this question"},
+            )
+        session.delete(row)
+        session.commit()
