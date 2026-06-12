@@ -21,6 +21,11 @@ logs/
 *.log
 *.pid
 
+# Packaging/build artifacts
+*.egg-info/
+build/
+dist/
+
 # IDE
 .idea/
 .vscode/

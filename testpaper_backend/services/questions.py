@@ -139,7 +139,7 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate, curre
 def question_to_dict(question: QuestionEntity, include_answer: bool = True) -> dict[str, Any]:
     payload = question.model_dump(mode="json")
     if not include_answer:
-        payload.pop("answer", None)
+        payload["answer"] = "" if question.type != QuestionType.multiple_choice else []
     return payload
 
 

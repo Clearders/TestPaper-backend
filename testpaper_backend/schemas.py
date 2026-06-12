@@ -98,7 +98,7 @@ class QuestionBase(BaseModel):
     tags: list[str] = Field(default_factory=list)
     text: str = Field(min_length=1)
     options: list[str] | None = None
-    answer: str | list[str] = Field(min_length=1)
+    answer: str | list[str] = Field(default="")
     hasLatex: bool | None = None
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None
@@ -132,18 +132,19 @@ class QuestionBase(BaseModel):
     @model_validator(mode="after")
     def validate_question_answer(self):
         if self.type == QuestionType.multiple_choice:
-            if not isinstance(self.answer, list):
+            if self.answer and not isinstance(self.answer, list):
                 raise ValueError("multiple_choice questions require answer to be a list")
-            if len(self.answer) < 1:
-                raise ValueError("multiple_choice questions require at least one answer")
-        else:
-            if not isinstance(self.answer, str):
-                raise ValueError(f"{self.type.value} questions require answer to be a string")
+        elif self.answer and not isinstance(self.answer, str):
+            raise ValueError(f"{self.type.value} questions require answer to be a string")
         return self
 
 
 class QuestionCreate(QuestionBase):
-    pass
+    @model_validator(mode="after")
+    def validate_answer_not_empty(self):
+        if not self.answer:
+            raise ValueError("answer is required")
+        return self
 
 
 class QuestionUpdate(BaseModel):
