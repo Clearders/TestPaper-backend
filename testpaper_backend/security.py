@@ -55,6 +55,7 @@ def user_row_to_entity(row: UserRow) -> UserEntity:
         role=role,
         permissions=permissions_for_role(role),
         isActive=row.is_active,
+        avatarUrl=row.avatar_url,
         createdAt=row.created_at,
         updatedAt=row.updated_at,
     )

@@ -25,6 +25,12 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    client = websocket.scope.get("client")
+    client_ip = client[0] if client else "unknown"
+    if not realtime.can_connect(client_ip):
+        await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
+        return
+
     await realtime.connect(websocket)
     try:
         await websocket.send_json(

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class QuestionType(StrEnum):
@@ -89,6 +89,7 @@ class QuestionImage(BaseModel):
 
 
 class QuestionBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     type: QuestionType
     subjects: list[str] = Field(min_length=1)
     difficulty: Difficulty
@@ -144,6 +145,7 @@ class QuestionCreate(QuestionBase):
 
 
 class QuestionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     type: QuestionType | None = None
     subjects: list[str] | None = None
     difficulty: Difficulty | None = None
@@ -173,6 +175,7 @@ class QuestionRef(BaseModel):
 
 
 class PaperBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1)
     subject: str = Field(min_length=1)
     duration: int = Field(gt=0)
@@ -194,6 +197,7 @@ class PaperCreate(PaperBase):
 
 
 class PaperUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, min_length=1)
     subject: str | None = Field(default=None, min_length=1)
     duration: int | None = Field(default=None, gt=0)
@@ -216,6 +220,7 @@ class GenerationTypeTarget(BaseModel):
 
 
 class PaperGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1)
     duration: int = Field(gt=0)
     totalMarks: int = Field(gt=0)
@@ -246,24 +251,27 @@ class QuestionOrderItem(BaseModel):
 
 
 class QuestionOrderUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     orders: list[QuestionOrderItem]
 
 
 class ExportPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     includeAnswer: bool = True
     questionOrder: QuestionOrder = QuestionOrder.paper
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=1)
     password: str = Field(min_length=1)
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=3, max_length=64)
     displayName: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=6, max_length=128)
-
+    password: str = Field(min_length=8, max_length=128)
     @model_validator(mode="after")
     def normalize_register_request(self):
         self.username = self.username.strip().lower()
@@ -272,9 +280,10 @@ class RegisterRequest(BaseModel):
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=3, max_length=64)
     displayName: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.viewer
     isActive: bool = True
 
@@ -286,8 +295,9 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     displayName: str | None = Field(default=None, min_length=1, max_length=120)
-    password: str | None = Field(default=None, min_length=6, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     role: UserRole | None = None
     isActive: bool | None = None
 
@@ -298,6 +308,32 @@ class UserUpdate(BaseModel):
         return self
 
 
+class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str | None = Field(default=None, min_length=3, max_length=64)
+    displayName: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def check_at_least_one_field(self):
+        if self.username is None and self.displayName is None:
+            raise ValueError("At least one of username or displayName must be provided")
+        return self
+
+    @model_validator(mode="after")
+    def normalize_profile_update(self):
+        if self.username is not None:
+            self.username = self.username.strip().lower()
+        if self.displayName is not None:
+            self.displayName = self.displayName.strip()
+        return self
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    currentPassword: str = Field(min_length=1)
+    newPassword: str = Field(min_length=8, max_length=128)
+
+
 class UserEntity(BaseModel):
     id: int
     publicId: str
@@ -306,6 +342,7 @@ class UserEntity(BaseModel):
     role: UserRole
     permissions: list[Permission]
     isActive: bool
+    avatarUrl: str | None = None
     createdAt: datetime
     updatedAt: datetime
 
@@ -316,6 +353,7 @@ class AuthSession(BaseModel):
 
 
 class ImageUploadPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     filename: str = Field(min_length=1)
     data: str = Field(min_length=1)
     mimeType: str = Field(default="image/png")
@@ -341,11 +379,13 @@ class CorrectionStatus(StrEnum):
 
 
 class QuestionCorrectionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     category: CorrectionCategory
     message: str = Field(min_length=1, max_length=1000)
 
 
 class QuestionCorrectionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     status: CorrectionStatus
 
 

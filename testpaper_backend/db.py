@@ -26,6 +26,8 @@ class UserRow(Base):
     password_hash: Mapped[str] = mapped_column("passwordHash", String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False, default=UserRole.viewer.value)
     is_active: Mapped[bool] = mapped_column("isActive", Boolean, nullable=False, default=True)
+    avatar_url: Mapped[str | None] = mapped_column("avatarUrl", String(512), nullable=True)
+    last_username_changed_at: Mapped[datetime | None] = mapped_column("lastUsernameChangedAt", DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     tokens: Mapped[list[AuthTokenRow]] = relationship(back_populates="user", cascade="all, delete-orphan")

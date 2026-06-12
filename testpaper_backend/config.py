@@ -121,3 +121,29 @@ def get_session_ttl_hours() -> int:
         return hours
     except ValueError as exc:
         raise RuntimeError("SESSION_TTL_HOURS must be a positive integer.") from exc
+
+
+def get_rate_limit_max_attempts() -> int:
+    raw = os.getenv("RATE_LIMIT_MAX_ATTEMPTS", "5")
+    try:
+        max_attempts = int(raw)
+        if max_attempts < 1:
+            raise ValueError
+        return max_attempts
+    except ValueError as exc:
+        raise RuntimeError("RATE_LIMIT_MAX_ATTEMPTS must be a positive integer.") from exc
+
+
+def get_rate_limit_window_seconds() -> int:
+    raw = os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60")
+    try:
+        window = int(raw)
+        if window < 1:
+            raise ValueError
+        return window
+    except ValueError as exc:
+        raise RuntimeError("RATE_LIMIT_WINDOW_SECONDS must be a positive integer.") from exc
+
+
+def get_forwarded_allow_ips() -> str:
+    return os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
