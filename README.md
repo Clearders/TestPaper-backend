@@ -1,6 +1,11 @@
 # TestPaper Backend
 
-FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence, Redis for cache/health checks/Celery broker, and Celery for asynchronous jobs.
+> **版本**: 0.1.0
+> **框架**: FastAPI 1.0.0
+> **Python**: 3.14+
+> **最后更新**: 2026-06-12
+
+FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence, Redis for cache/Celery broker, and Celery for asynchronous jobs.
 
 ## Tech Stack
 
@@ -8,72 +13,92 @@ FastAPI backend for the TestPapers test paper management and auto-generation sys
 |---|---|
 | Python 3.14+ | Runtime |
 | FastAPI | Web framework (REST + WebSocket) |
-| SQLAlchemy 2.0 | ORM with async session support |
-| PostgreSQL | Primary database (JSONB columns for tags/options/images) |
-| Alembic | Database migration management |
-| Redis | Caching, Celery message broker, health checks |
-| Celery | Async task queue (exports, validation, stats) |
-| Argon2-cffi | Password hashing |
+| SQLAlchemy 2.0 | ORM with session support |
+| PostgreSQL | Primary database (JSONB columns for tags/options/images/subjects) |
+| Alembic | Database migration management (12 versions) |
+| Redis | Caching, Celery message broker, session rate-limiting |
+| Celery | Async task queue (exports, validation, stats, cleanup) |
+| Argon2-cffi | Password hashing (argon2id + pbkdf2_sha256 fallback) |
 | Uvicorn | ASGI server |
 
 ## Project Structure
 
 ```text
 TestPaper-backend/
-  alembic/                       # Database migrations (7 versions)
+  alembic/                       # Database migrations (12 versions)
+    versions/
+      20260507_0001_initial_schema.py
+      20260508_0002_personal_questions_and_images.py
+      20260509_0003_json_columns_to_jsonb.py
+      20260511_0004_question_score_weight.py
+      20260511_0005_identity_ids.py
+      20260513_0006_question_search_indexes.py
+      20260609_0007_add_users_public_id.py
+      20260609_0008_add_questions_papers_public_id.py
+      20260611_0009_split_choice_type.py
+      20260611_0010_subject_to_subjects_array.py
+      20260612_0011_add_revisions_and_corrections.py
+      20260612_0012_add_user_profile_fields.py
   scripts/                       # Smoke-test helpers
   tests/                         # Automated tests
   testpaper_backend/
-    application.py               # FastAPI app assembly
+    application.py               # FastAPI app assembly (routes, middleware, static mounts)
     config.py                    # Environment-backed configuration
     db.py                        # SQLAlchemy models, engine, and session factory
-    schemas.py                   # Pydantic API/domain schemas
+    schemas.py                   # Pydantic API/domain schemas (enums, request/response models)
     repositories.py              # Database-backed store adapters
     security.py                  # Auth, password hashing, and permission helpers
     time_utils.py                # UTC datetime helpers
     redis_client.py              # Redis client lifecycle helpers
     api/
       router.py                  # API router composition
-      dependencies.py            # FastAPI dependency aliases
-      routes/                    # Route modules by resource
-        auth.py                  # Login, register, session refresh, logout
-        users.py                 # User CRUD (admin only)
-        questions.py             # Question CRUD, search, personal bank
-        papers.py                # Paper CRUD, genetic generation, DOCX export
+      dependencies.py            # FastAPI dependency aliases (permission checks)
+      routes/
+        auth.py                  # Login, register, refresh, logout, me, profile, password, avatar, account
+        users.py                 # User CRUD (admin only via publicId)
+        questions.py             # Question CRUD, search, personal bank, revisions, corrections
+        papers.py                # Paper CRUD, genetic generation, DOCX download
         images.py                # Base64 PNG image upload
         meta.py                  # Subjects and tags metadata
         tasks.py                 # Celery task dispatch and polling
         health.py                # PostgreSQL and Redis health checks
-        websocket.py             # Authenticated realtime WebSocket
+        websocket.py             # Authenticated realtime WebSocket (CORS + query-param token)
         root.py                  # Service info endpoint
     core/
-      factory.py                 # FastAPI factory and middleware setup
-      http.py                    # Request IDs and exception handlers
+      factory.py                 # FastAPI factory with CORS, CSRF, and TrustedHost middleware
+      http.py                    # Request ID, security headers, and exception handlers
       lifespan.py                # Startup/shutdown resource handling
       responses.py               # Response envelope helpers
-      csrf.py                    # CSRF token generation and Cookie helpers
-    services/                    # Business logic by domain
-      questions.py               # Question query, validation, update
-      papers.py                  # Paper query, export, helper functions
-      paper_generation.py        # Genetic algorithm auto paper generation
-      auth_sessions.py           # Cookie-based session management
-      images.py                  # Image storage service
-      realtime.py                # WebSocket connection management
+      csrf.py                    # CSRF token generation, Cookie helpers, and middleware
+    services/
+      questions.py               # Question query, validation, update, revisions, corrections
+      papers.py                  # Paper query, export, question ordering helpers
+      paper_generation.py        # Genetic algorithm auto paper generation (multi-type, multi-subject)
+      auth_sessions.py           # Cookie-based session management (TTL, rotate-on-refresh)
+      images.py                  # Image storage (PNG validation, 30MB limit)
+      profiles.py                # Avatar storage (PNG validation, 500KB limit)
+      rate_limit.py              # Rate limiting for login/register endpoints
+      realtime.py                # WebSocket connection manager (broadcast, per-IP limits)
     documents/
-      paper_docx.py              # Self-built DOCX generator (OOXML manipulation)
+      paper_docx.py              # Self-built DOCX generator (OOXML manipulation with LaTeX)
       ExamPaperTemplate.docx     # DOCX export template
     worker/
       celery_app.py              # Celery app configuration
-      tasks.py                   # Celery task definitions
+      tasks.py                   # Celery task definitions (ping, export, validate, stats, cleanup)
+  pyproject.toml
+  alembic.ini
+  uv.lock
 ```
 
 ## Local Setup
 
 ```bash
+# Install dependencies (requires uv)
+uv sync
+
+# Or with pip
 pip install -e .
 ```
-
-This installs `testpaper-backend`, `uvicorn`, `celery`, and `alembic` as console scripts.
 
 ## Local Commands
 
@@ -115,32 +140,51 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 AUTH_COOKIE_NAME=testpapers_session
 AUTH_COOKIE_SECURE=false
 AUTH_COOKIE_SAMESITE=lax
+AUTH_COOKIE_DOMAIN=
+CSRF_COOKIE_NAME=testpapers_csrf
+SESSION_TTL_HOURS=12
+RATE_LIMIT_MAX_ATTEMPTS=5
+RATE_LIMIT_WINDOW_SECONDS=60
+APP_ENV=development
+TRUSTED_HOSTS=*
+FORWARDED_ALLOW_IPS=127.0.0.1
 ```
 
 ## API Overview
 
 All application routes are under `/api/v1`. For the full API specification, see [TestPapers/docs/api-spec.md](../TestPapers/docs/api-spec.md).
 
-| Module | Prefix | Description |
-|---|---|---|
-| Root | `/` | Service info (`GET /` returns version and service name) |
-| Auth | `/api/v1/auth` | Login, register, session refresh, logout, current user |
-| WebSocket | `/api/v1/ws` | Authenticated realtime events |
-| Users | `/api/v1/users` | Admin user management (CRUD) |
-| Questions | `/api/v1/questions` | Question bank CRUD, search, personal bank |
-| Papers | `/api/v1/papers` | Paper CRUD, genetic algorithm generation, DOCX download |
-| Images | `/api/v1/images` | Base64 PNG image upload |
-| Meta | `/api/v1/meta` | Available subjects and tags |
-| Tasks | `/api/v1/tasks` | Celery task dispatch and status polling |
-| Health | `/api/v1/health` | PostgreSQL and Redis health checks |
+| Module | Prefix | Endpoints | Description |
+|---|---|---|---|
+| Root | `/` | 1 | Service info (`GET /` returns version and service name) |
+| Auth | `/api/v1/auth` | 9 | Login, register, refresh, logout, me, profile, password, avatar, account |
+| WebSocket | `/api/v1/ws` | 1 | Authenticated realtime events (token via Bearer, Cookie, or query param) |
+| Users | `/api/v1/users` | 4 | Admin user management (CRUD via publicId) |
+| Questions | `/api/v1/questions` | 12 | Question CRUD, search, personal bank, revisions, corrections |
+| Papers | `/api/v1/papers` | 9 | Paper CRUD, genetic algorithm generation, DOCX download, export preview |
+| Images | `/api/v1/images` | 1 | Base64 PNG image upload (30MB, test questions) |
+| Meta | `/api/v1/meta` | 2 | Available subjects and tags |
+| Tasks | `/api/v1/tasks` | 7 | Celery task dispatch and status polling |
+| Health | `/api/v1/health` | 2 | PostgreSQL and Redis health checks |
 
 ## Authentication
 
 - Uses HttpOnly Cookie (`testpapers_session`) for browser-based authentication
 - `Authorization: Bearer <token>` is supported as a fallback for non-browser clients
-- CSRF protection via `testpapers_csrf` Cookie + `X-CSRF-Token` header for non-safe methods (POST, PATCH, PUT, DELETE)
-- Session tokens expire after 12 hours
-- Expired tokens trigger `TOKEN_EXPIRED` (401), clients should call `POST /api/v1/auth/refresh` to rotate
+- WebSocket accepts token via Cookie, `Authorization` header, or `?token=` query parameter
+- CSRF protection via `testpapers_csrf` Cookie + `X-CSRF-Token` header for non-safe methods
+- `/auth/login` and `/auth/register` exempt from CSRF checks
+- Session tokens expire after 12 hours (configurable via `SESSION_TTL_HOURS`)
+- Expired tokens trigger `TOKEN_EXPIRED` (401); clients call `POST /api/v1/auth/refresh` to rotate
+- Refresh rotates the token (old token deleted, new token issued)
+- Login and register endpoints are rate-limited (configurable via `RATE_LIMIT_*` env vars)
+
+## User Profile Features
+
+- **Profile update**: `PATCH /api/v1/auth/profile` — change username (max once per 30 days) or display name
+- **Password change**: `PUT /api/v1/auth/password` — requires current password verification
+- **Avatar upload**: `POST /api/v1/auth/avatar` — Base64 PNG, max 500KB, stored on disk
+- **Account deletion**: `DELETE /api/v1/auth/account` — soft delete (sets `isActive=false`), clears all sessions
 
 ## Permission Model
 
@@ -173,15 +217,31 @@ The WebSocket endpoint broadcasts the following events to all connected clients:
 | `paper.questions.reordered` | Question order changed |
 | `pong` | Response to client `{ "event": "ping" }` |
 
+Per-IP connection limit: 10 concurrent WebSocket connections.
+
 ## Genetic Algorithm Paper Generation
 
 The `POST /api/v1/papers/generate` endpoint uses a genetic algorithm to automatically select questions and assemble a paper. Key features:
 
-- Filters candidate pool by subject, question type, required tags, and optional owner (own questions only)
-- Derives target difficulty distribution from the `difficultyCoefficient` parameter
+- Multi-type support: specify multiple `questionTypes` with individual counts
+- Multi-subject support: filter candidate pool by one or more `subjects`
+- Filters candidate pool by subject(s), required tags, and optional owner (own questions only)
+- Derives target difficulty distribution from the `difficultyCoefficient` parameter (0–1)
 - Uses `preferredTags` for fitness scoring — questions matching more preferred tags score higher
 - Allocates marks based on each question's `scoreWeight` field
 - Returns detailed diagnostics: fitness score, candidate count, generation count, difficulty/type distribution
+
+## Question Revisions and Corrections
+
+- **Revisions**: Every `PATCH /api/v1/questions/{publicId}` automatically creates a revision record with field-level change summary. Revisions can be listed and deleted.
+- **Corrections**: Any authenticated user can submit corrections (`wrong_answer`, `unclear`, `typo`, `other`). Question owners or admins can accept/reject corrections. Corrections can be listed and deleted.
+
+## Question Ownership
+
+- Questions have an `ownerId` field referencing the creator
+- Teachers can only modify/delete their own questions (admins bypass this restriction)
+- Admin users can assign questions to other users via `users:manage` permission
+- `POST /api/v1/questions/mine` returns only the current user's questions
 
 ## Response Format
 
@@ -204,10 +264,38 @@ On error:
   "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Request validation failed"
+    "message": "Request validation failed",
+    "details": [
+      { "field": "difficulty", "reason": "must be easy, medium, or hard" }
+    ]
   },
   "meta": {
     "requestId": "550e8400-e29b-41d4-a716-446655440000"
   }
 }
 ```
+
+## Database Migrations
+
+Run all migrations:
+
+```bash
+alembic upgrade head
+```
+
+Current migration history (12 versions):
+
+| Version | Description |
+|---|---|
+| `0001` | Initial schema (users, questions, papers, auth_tokens) |
+| `0002` | Personal questions + image columns |
+| `0003` | JSON columns to JSONB |
+| `0004` | Question score_weight |
+| `0005` | Public identity IDs (uuid) |
+| `0006` | Question search indexes |
+| `0007` | Users public_id |
+| `0008` | Questions/papers public_id |
+| `0009` | Split choice type (single_choice, multiple_choice) |
+| `0010` | Subject to subjects array |
+| `0011` | Add revisions and corrections tables |
+| `0012` | Add user profile fields (avatar_url, last_username_changed_at) |
