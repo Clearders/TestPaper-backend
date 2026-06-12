@@ -431,3 +431,15 @@ class ErrorEnvelope(BaseModel):
     success: bool = False
     error: ErrorDetail
     meta: MetaInfo
+
+
+class PaginationInfo(BaseModel):
+    page: int
+    pageSize: int
+    total: int
+    totalPages: int
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: list[T]
+    pagination: PaginationInfo

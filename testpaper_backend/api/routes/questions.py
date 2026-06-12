@@ -8,6 +8,7 @@ from testpaper_backend.repositories import QUESTIONS
 from testpaper_backend.schemas import (
     Difficulty,
     Envelope,
+    PaginatedResponse,
     QuestionCorrectionCreate,
     QuestionCorrectionEntity,
     QuestionCorrectionUpdate,
@@ -40,7 +41,7 @@ from testpaper_backend.services.realtime import realtime
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 
 
-@router.get("", response_model=Envelope[list[QuestionEntity]])
+@router.get("", response_model=Envelope[PaginatedResponse[QuestionEntity]])
 async def list_questions(
     request: Request,
     current_user: QuestionsReadDep,
@@ -76,7 +77,7 @@ async def list_questions(
     return envelope(page_data, request)
 
 
-@router.get("/mine", response_model=Envelope[list[QuestionEntity]])
+@router.get("/mine", response_model=Envelope[PaginatedResponse[QuestionEntity]])
 async def list_my_questions(
     request: Request,
     current_user: QuestionsReadDep,

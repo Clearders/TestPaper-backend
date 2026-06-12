@@ -160,13 +160,13 @@ async def change_password(payload: PasswordChange, current_user: CurrentUserDep)
 
 @router.post("/avatar", response_model=Envelope[ImageUploadResponse])
 async def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep):
-    avatar_url = store_avatar(payload, current_user.publicId)
+    avatar = store_avatar(payload, current_user.publicId)
     with SessionLocal() as session:
         user_row = cast(UserRow, session.get(UserRow, current_user.id))
-        user_row.avatar_url = avatar_url
+        user_row.avatar_url = avatar.url
         user_row.updated_at = now_utc()
         session.commit()
-        return envelope({"url": avatar_url}, request)
+        return envelope(avatar.model_dump(mode="json"), request)
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)

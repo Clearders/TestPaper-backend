@@ -66,4 +66,7 @@ def get_websocket_token(websocket: WebSocket) -> str | None:
     scheme, _, token = header.partition(" ")
     if scheme.lower() == "bearer" and token:
         return token
-    return websocket.cookies.get(get_auth_cookie_name())
+    cookie_token = websocket.cookies.get(get_auth_cookie_name())
+    if cookie_token:
+        return cookie_token
+    return websocket.query_params.get("token")

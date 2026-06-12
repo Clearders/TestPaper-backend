@@ -6,14 +6,14 @@ from pathlib import Path
 
 from fastapi import HTTPException, status
 
-from testpaper_backend.schemas import ImageUploadPayload
+from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse
 
 MAX_AVATAR_BYTES = 500 * 1024
 PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
 AVATAR_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "avatars"
 
 
-def store_avatar(payload: ImageUploadPayload, user_public_id: str) -> str:
+def store_avatar(payload: ImageUploadPayload, user_public_id: str) -> ImageUploadResponse:
     if payload.mimeType != "image/png":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -43,4 +43,8 @@ def store_avatar(payload: ImageUploadPayload, user_public_id: str) -> str:
     AVATAR_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = f"{user_public_id}.png"
     (AVATAR_UPLOAD_DIR / safe_name).write_bytes(image_bytes)
-    return f"/api/v1/avatars/{safe_name}"
+    return ImageUploadResponse(
+        url=f"/api/v1/avatars/{safe_name}",
+        filename=safe_name,
+        mimeType=payload.mimeType,
+    )
