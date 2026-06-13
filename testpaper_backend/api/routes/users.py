@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import select
 
-from testpaper_backend.api.dependencies import UsersManageDep
+from testpaper_backend.api.dependencies import RateLimitWriteDep, UsersManageDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import SessionLocal, UserRow
 from testpaper_backend.schemas import Envelope, UserCreate, UserEntity, UserRole, UserUpdate
 from testpaper_backend.security import password_hash, user_row_to_entity
 from testpaper_backend.time_utils import now_utc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -23,7 +26,7 @@ async def list_users(request: Request, current_user: UsersManageDep):
 
 
 @router.post("", response_model=Envelope[UserEntity], status_code=status.HTTP_201_CREATED)
-async def create_user(request: Request, payload: UserCreate, current_user: UsersManageDep):
+async def create_user(request: Request, payload: UserCreate, current_user: UsersManageDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
         if existing is not None:
@@ -45,11 +48,12 @@ async def create_user(request: Request, payload: UserCreate, current_user: Users
         session.add(user_row)
         session.commit()
         session.refresh(user_row)
+        logger.info("User created: %s", user_row.public_id)
         return envelope(user_row_to_entity(user_row).model_dump(mode="json"), request)
 
 
 @router.patch("/{user_public_id}", response_model=Envelope[UserEntity])
-async def update_user(request: Request, user_public_id: str, payload: UserUpdate, current_user: UsersManageDep):
+async def update_user(request: Request, user_public_id: str, payload: UserUpdate, current_user: UsersManageDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.public_id == user_public_id)).first())
         if user_row is None:
@@ -67,11 +71,12 @@ async def update_user(request: Request, user_public_id: str, payload: UserUpdate
         user_row.updated_at = now_utc()
         session.commit()
         session.refresh(user_row)
+        logger.info("User updated: %s", user_public_id)
         return envelope(user_row_to_entity(user_row).model_dump(mode="json"), request)
 
 
 @router.delete("/{user_public_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_public_id: str, current_user: UsersManageDep):
+async def delete_user(user_public_id: str, current_user: UsersManageDep, _: RateLimitWriteDep):
     if current_user.publicId == user_public_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -83,4 +88,5 @@ async def delete_user(user_public_id: str, current_user: UsersManageDep):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
         session.delete(user_row)
         session.commit()
+        logger.info("User deleted: %s", user_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

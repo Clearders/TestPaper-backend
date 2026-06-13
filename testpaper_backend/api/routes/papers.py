@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
-from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep
+from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename
 from testpaper_backend.repositories import PAPERS
@@ -15,13 +15,13 @@ from testpaper_backend.schemas import (
     PaperCreate,
     PaperEntity,
     PaperGenerateRequest,
-    PaperStatus,
     PaperUpdate,
     QuestionOrder,
     QuestionOrderUpdate,
     QuestionRef,
 )
 from testpaper_backend.security import has_permission
+from testpaper_backend.services.paper_create import create_paper_from_payload, generate_paper_from_result
 from testpaper_backend.services.paper_generation import generate_paper_with_genetic_algorithm
 from testpaper_backend.services.papers import (
     build_export_questions,
@@ -33,31 +33,17 @@ from testpaper_backend.services.questions import get_question_or_404
 from testpaper_backend.services.realtime import realtime
 from testpaper_backend.time_utils import now_utc
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
 
 
 @router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
-async def create_paper(request: Request, payload: PaperCreate, current_user: PapersWriteDep):
+async def create_paper(request: Request, payload: PaperCreate, current_user: PapersWriteDep, _: RateLimitWriteDep):
     validate_unique_question_refs(payload.questions, "questions")
-    if not payload.questions:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
-        )
-    paper = PaperEntity(
-        id=0,
-        publicId=str(uuid4()),
-        title=payload.title,
-        subject=payload.subject,
-        duration=payload.duration,
-        totalMarks=payload.totalMarks,
-        questions=[QuestionRef(**item.model_dump()) for item in sorted(payload.questions, key=lambda item: item.orderNo)],
-        status=PaperStatus.draft,
-        createdAt=now_utc(),
-        updatedAt=now_utc(),
-    )
-    paper = PAPERS.create(paper)
+    paper = create_paper_from_payload(payload)
     await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    logger.info("Paper created: %s", paper.publicId)
     return envelope(paper_with_questions(paper), request)
 
 
@@ -70,21 +56,10 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
         )
-    paper = PaperEntity(
-        id=0,
-        publicId=str(uuid4()),
-        title=payload.title,
-        subject=payload.subject,
-        duration=payload.duration,
-        totalMarks=payload.totalMarks,
-        questions=generated["paperQuestions"],
-        status=PaperStatus.draft,
-        createdAt=now_utc(),
-        updatedAt=now_utc(),
-    )
-    paper = PAPERS.create(paper)
+    paper = generate_paper_from_result(payload, generated)
     paper_payload = paper_with_questions(paper)
     await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    logger.info("Paper generated: %s", paper.publicId)
     return envelope(
         {
             "paper": paper_payload,

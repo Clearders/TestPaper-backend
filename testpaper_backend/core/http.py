@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from testpaper_backend.config import is_production
+from testpaper_backend.core.logging_config import set_request_id
 from testpaper_backend.core.responses import error_envelope
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ def register_request_id_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
         request.state.request_id = request.headers.get("x-request-id", str(uuid4()))
+        set_request_id(request.state.request_id)
         response = await call_next(request)
         response.headers["x-request-id"] = request.state.request_id
         return response
@@ -29,6 +31,16 @@ def register_security_headers(app: FastAPI) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "img-src 'self' data: blob:; "
+            "connect-src 'self' ws: wss:; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
         return response
 
 

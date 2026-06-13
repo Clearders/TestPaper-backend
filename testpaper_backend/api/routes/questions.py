@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
-from testpaper_backend.api.dependencies import QuestionsDeleteDep, QuestionsReadDep, QuestionsWriteDep
+from testpaper_backend.api.dependencies import QuestionsDeleteDep, QuestionsReadDep, QuestionsWriteDep, RateLimitWriteDep
+from testpaper_backend.api.routes.meta import invalidate_meta_cache
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.repositories import QUESTIONS
 from testpaper_backend.schemas import (
@@ -37,6 +40,8 @@ from testpaper_backend.services.questions import (
     validate_question_payload,
 )
 from testpaper_backend.services.realtime import realtime
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 
@@ -128,11 +133,14 @@ async def create_question(
     request: Request,
     payload: QuestionCreate,
     current_user: QuestionsWriteDep,
+    _: RateLimitWriteDep,
 ):
     validate_question_payload(payload)
     payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
     await realtime.broadcast("question.created", {"question": question_to_dict(question, include_answer=False), "actorId": current_user.id})
+    invalidate_meta_cache()
+    logger.info("Question created: %s by user %d", question.publicId, current_user.id)
     return envelope(question_to_dict(question), request)
 
 
@@ -155,6 +163,8 @@ async def update_question(
     updated = apply_question_update(question, payload, current_user.id)
     QUESTIONS[question.id] = updated
     await realtime.broadcast("question.updated", {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id})
+    invalidate_meta_cache()
+    logger.info("Question updated: %s", question_public_id)
     return envelope(question_to_dict(updated), request)
 
 
@@ -164,6 +174,8 @@ async def delete_question(question_public_id: str, current_user: QuestionsDelete
     ensure_question_owner_access(question, current_user)
     del QUESTIONS[question.id]
     await realtime.broadcast("question.deleted", {"questionId": question.publicId, "actorId": current_user.id})
+    invalidate_meta_cache()
+    logger.info("Question deleted: %s", question_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

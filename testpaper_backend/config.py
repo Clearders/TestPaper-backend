@@ -201,3 +201,25 @@ def get_rate_limit_window_seconds() -> int:
 
 def get_forwarded_allow_ips() -> str:
     return os.getenv("FORWARDED_ALLOW_IPS", "127.0.0.1")
+
+
+def get_rate_limit_write_max_attempts() -> int:
+    raw = os.getenv("RATE_LIMIT_WRITE_MAX_ATTEMPTS", "30")
+    try:
+        value = int(raw)
+        if value < 1:
+            raise ValueError
+        return value
+    except ValueError as exc:
+        raise RuntimeError("RATE_LIMIT_WRITE_MAX_ATTEMPTS must be a positive integer.") from exc
+
+
+def get_rate_limit_write_window_seconds() -> int:
+    raw = os.getenv("RATE_LIMIT_WRITE_WINDOW_SECONDS", "60")
+    try:
+        value = int(raw)
+        if value < 1:
+            raise ValueError
+        return value
+    except ValueError as exc:
+        raise RuntimeError("RATE_LIMIT_WRITE_WINDOW_SECONDS must be a positive integer.") from exc

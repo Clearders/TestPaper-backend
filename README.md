@@ -1,9 +1,9 @@
 # TestPaper Backend
 
 > **版本**: 0.1.0
-> **框架**: FastAPI 1.0.0
+> **框架**: FastAPI 0.136
 > **Python**: 3.14+
-> **最后更新**: 2026-06-12
+> **最后更新**: 2026-06-14
 
 FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence, Redis for cache/Celery broker, and Celery for asynchronous jobs.
 
@@ -45,7 +45,12 @@ TestPaper-backend/
     application.py               # FastAPI app assembly (routes, middleware, static mounts)
     config.py                    # Environment-backed configuration
     db.py                        # SQLAlchemy models, engine, and session factory
-    schemas.py                   # Pydantic API/domain schemas (enums, request/response models)
+    schemas/
+      __init__.py
+      auth.py         # Auth-related schema definitions
+      common.py       # Shared Pydantic models (Envelope, MetaInfo)
+      paper.py        # Paper creation/generation schema definitions
+      question.py     # Question CRUD, revision, correction schema definitions
     repositories.py              # Database-backed store adapters
     security.py                  # Auth, password hashing, and permission helpers
     time_utils.py                # UTC datetime helpers
@@ -71,12 +76,12 @@ TestPaper-backend/
       responses.py               # Response envelope helpers
       csrf.py                    # CSRF token generation, Cookie helpers, and middleware
     services/
-      questions.py               # Question query, validation, update, revisions, corrections
-      papers.py                  # Paper query, export, question ordering helpers
-      paper_generation.py        # Genetic algorithm auto paper generation (multi-type, multi-subject)
       auth_sessions.py           # Cookie-based session management (TTL, rotate-on-refresh)
       images.py                  # Image storage (PNG validation, 30MB limit)
+      paper_generation.py        # Genetic algorithm auto paper generation (multi-type, multi-subject)
+      papers.py                  # Paper query, export, question ordering helpers
       profiles.py                # Avatar storage (PNG validation, 500KB limit)
+      questions.py               # Question query, validation, update, revisions, corrections
       rate_limit.py              # Rate limiting for login/register endpoints
       realtime.py                # WebSocket connection manager (broadcast, per-IP limits)
     documents/
@@ -162,10 +167,10 @@ All application routes are under `/api/v1`. For the full API specification, see 
 | Users | `/api/v1/users` | 4 | Admin user management (CRUD via publicId) |
 | Questions | `/api/v1/questions` | 12 | Question CRUD, search, personal bank, revisions, corrections |
 | Papers | `/api/v1/papers` | 9 | Paper CRUD, genetic algorithm generation, DOCX download, export preview |
-| Images | `/api/v1/images` | 1 | Base64 PNG image upload (30MB, test questions) |
-| Meta | `/api/v1/meta` | 2 | Available subjects and tags |
-| Tasks | `/api/v1/tasks` | 7 | Celery task dispatch and status polling |
-| Health | `/api/v1/health` | 2 | PostgreSQL and Redis health checks |
+| Images | `/api/v1/images` | 1 | Base64 PNG image upload (30MB, question illustrations) |
+| Meta | `/api/v1/meta` | 2 | Available subjects and tags (distinct from questions) |
+| Tasks | `/api/v1/tasks` | 7 | Celery task dispatch and status polling (ping, export, validate, stats, cleanup) |
+| Health | `/api/v1/health` | 2 | PostgreSQL and Redis health checks (unauthenticated) |
 
 ## Authentication
 
@@ -241,7 +246,7 @@ The `POST /api/v1/papers/generate` endpoint uses a genetic algorithm to automati
 - Questions have an `ownerId` field referencing the creator
 - Teachers can only modify/delete their own questions (admins bypass this restriction)
 - Admin users can assign questions to other users via `users:manage` permission
-- `POST /api/v1/questions/mine` returns only the current user's questions
+- `GET /api/v1/questions/mine` returns only the current user's questions
 
 ## Response Format
 

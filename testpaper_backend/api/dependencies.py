@@ -4,7 +4,12 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from testpaper_backend.config import get_rate_limit_max_attempts, get_rate_limit_window_seconds
+from testpaper_backend.config import (
+    get_rate_limit_max_attempts,
+    get_rate_limit_window_seconds,
+    get_rate_limit_write_max_attempts,
+    get_rate_limit_write_window_seconds,
+)
 from testpaper_backend.schemas import UserEntity
 from testpaper_backend.security import get_current_user, require_permission
 from testpaper_backend.services.rate_limit import check_rate_limit, get_client_ip
@@ -38,4 +43,16 @@ def _rate_limit_register(request: Request):
 
 RateLimitLoginDep = Annotated[None, Depends(_rate_limit_login)]
 RateLimitRegisterDep = Annotated[None, Depends(_rate_limit_register)]
+
+
+def _rate_limit_write(request: Request):
+    ip = get_client_ip(request)
+    check_rate_limit(
+        f"write:{ip}",
+        get_rate_limit_write_max_attempts(),
+        get_rate_limit_write_window_seconds(),
+    )
+
+
+RateLimitWriteDep = Annotated[None, Depends(_rate_limit_write)]
 

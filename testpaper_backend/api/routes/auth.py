@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import cast
 
@@ -38,6 +39,8 @@ from testpaper_backend.services.auth_sessions import (
 from testpaper_backend.services.profiles import store_avatar
 from testpaper_backend.time_utils import now_utc
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
@@ -49,6 +52,8 @@ async def login(request: Request, response: Response, payload: LoginRequest, _: 
         valid, needs_migration = verify_password(payload.password, user_row.password_hash)
         if user_row is None or not user_row.is_active or not valid:
             raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
+
+        logger.info("User login: %s", username)
 
         if needs_migration:
             user_row.password_hash = password_hash(payload.password)
@@ -185,6 +190,7 @@ async def delete_account(request: Request, current_user: CurrentUserDep):
         user_row.is_active = False
         user_row.updated_at = now_utc()
         session.commit()
+        logger.info("Account deleted: %d", current_user.id)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
     clear_csrf_cookie(response)

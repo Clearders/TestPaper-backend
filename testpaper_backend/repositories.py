@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from abc import ABC, abstractmethod
 from typing import Any, cast
 
 from fastapi import HTTPException, status
@@ -184,7 +185,42 @@ def paper_entity_to_row_kwargs(paper: PaperEntity) -> dict[str, Any]:
     }
 
 
-class QuestionStore:
+class StoreMixin(ABC):
+    """Mixin providing dict-like iteration/counting/lookup interface."""
+    
+    def items(self) -> list[tuple[int, Any]]:
+        return [(cast(int, e.id), e) for e in self.values()]
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self) -> int:
+        with SessionLocal() as session:
+            return int(session.scalar(select(func.count()).select_from(self._table())) or 0)
+
+    def __contains__(self, item_id: object) -> bool:
+        return isinstance(item_id, int) and self.get(item_id) is not None
+
+    def __getitem__(self, item_id: int) -> Any:
+        item = self.get(item_id)
+        if item is None:
+            raise KeyError(item_id)
+        return item
+
+    @abstractmethod
+    def _table(self): ...
+    @abstractmethod
+    def values(self): ...
+    @abstractmethod
+    def keys(self): ...
+    @abstractmethod
+    def get(self, item_id: int): ...
+
+
+class QuestionStore(StoreMixin):
+    def _table(self):
+        return QuestionRow
+
     def values(self) -> list[QuestionEntity]:
         with SessionLocal() as session:
             rows = session.scalars(select(QuestionRow).order_by(QuestionRow.id)).all()
@@ -193,19 +229,6 @@ class QuestionStore:
     def keys(self) -> list[int]:
         with SessionLocal() as session:
             return list(session.scalars(select(QuestionRow.id).order_by(QuestionRow.id)).all())
-
-    def items(self) -> list[tuple[int, QuestionEntity]]:
-        return [(question.id, question) for question in self.values()]
-
-    def __iter__(self):
-        return iter(self.keys())
-
-    def __len__(self) -> int:
-        with SessionLocal() as session:
-            return int(session.scalar(select(func.count()).select_from(QuestionRow)) or 0)
-
-    def __contains__(self, question_id: object) -> bool:
-        return isinstance(question_id, int) and self.get(question_id) is not None
 
     def get(self, question_id: int) -> QuestionEntity | None:
         with SessionLocal() as session:
@@ -220,12 +243,6 @@ class QuestionStore:
             if row is None:
                 return None
             return question_row_to_entity(row)
-
-    def __getitem__(self, question_id: int) -> QuestionEntity:
-        question = self.get(question_id)
-        if question is None:
-            raise KeyError(question_id)
-        return question
 
     def __setitem__(self, question_id: int, question: QuestionEntity) -> None:
         payload = question.model_copy(update={"id": question_id}) if question.id != question_id else question
@@ -260,7 +277,10 @@ class QuestionStore:
             session.commit()
 
 
-class PaperStore:
+class PaperStore(StoreMixin):
+    def _table(self):
+        return PaperRow
+
     @staticmethod
     def _resolve_question_refs(questions: list[QuestionRef]) -> list[PaperQuestionRow]:
         rows = []
@@ -290,19 +310,6 @@ class PaperStore:
     def keys(self) -> list[int]:
         return [paper.id for paper in self.values()]
 
-    def items(self) -> list[tuple[int, PaperEntity]]:
-        return [(paper.id, paper) for paper in self.values()]
-
-    def __iter__(self):
-        return iter(self.keys())
-
-    def __len__(self) -> int:
-        with SessionLocal() as session:
-            return int(session.scalar(select(func.count()).select_from(PaperRow)) or 0)
-
-    def __contains__(self, paper_id: object) -> bool:
-        return isinstance(paper_id, int) and self.get(paper_id) is not None
-
     def get(self, paper_id: int) -> PaperEntity | None:
         with SessionLocal() as session:
             row = cast(PaperRow | None, session.scalars(
@@ -318,12 +325,6 @@ class PaperStore:
             if row is None:
                 return None
             return paper_row_to_entity(row)
-
-    def __getitem__(self, paper_id: int) -> PaperEntity:
-        paper = self.get(paper_id)
-        if paper is None:
-            raise KeyError(paper_id)
-        return paper
 
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
