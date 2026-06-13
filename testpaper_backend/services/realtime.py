@@ -58,7 +58,7 @@ class RealtimeConnectionManager:
         for websocket in list(self._connections):
             try:
                 await websocket.send_text(message)
-            except RuntimeError:
+            except Exception:
                 stale.append(websocket)
         for ws in stale:
             self.disconnect(ws)

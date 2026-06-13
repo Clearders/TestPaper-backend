@@ -115,7 +115,7 @@ class QuestionUpdate(BaseModel):
     tags: list[str] | None = None
     text: str | None = Field(default=None, min_length=1)
     options: list[str] | None = None
-    answer: str | list[str] | None = Field(default=None, min_length=1)
+    answer: str | list[str] | None = Field(default=None)
     hasLatex: bool | None = None
     source: str | None = None
     essayBlankSpace: EssayBlankSpace | None = None

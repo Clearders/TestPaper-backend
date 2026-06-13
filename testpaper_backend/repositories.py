@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import Any, cast
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -166,6 +166,7 @@ def paper_row_to_entity(row: PaperRow, public_id_map: dict[int, str] | None = No
             for item in sorted(row.questions, key=lambda item: item.order_no)
         ],
         status=PaperStatus(row.status),
+        ownerId=row.owner_id,
         createdAt=row.created_at,
         updatedAt=row.updated_at,
     )
@@ -179,6 +180,7 @@ def paper_entity_to_row_kwargs(paper: PaperEntity) -> dict[str, Any]:
         "subject": paper.subject,
         "duration": paper.duration,
         "total_marks": paper.totalMarks,
+        "owner_id": paper.ownerId,
         "status": paper.status.value,
         "created_at": paper.createdAt,
         "updated_at": paper.updatedAt,
@@ -189,7 +191,7 @@ class StoreMixin(ABC):
     """Mixin providing dict-like iteration/counting/lookup interface."""
     
     def items(self) -> list[tuple[int, Any]]:
-        return [(cast(int, e.id), e) for e in self.values()]
+        return [(e.id, e) for e in self.values()]
 
     def __iter__(self):
         return iter(self.keys())
@@ -208,13 +210,13 @@ class StoreMixin(ABC):
         return item
 
     @abstractmethod
-    def _table(self): ...
+    def _table(self) -> Any: ...
     @abstractmethod
-    def values(self): ...
+    def values(self) -> list[Any]: ...
     @abstractmethod
-    def keys(self): ...
+    def keys(self) -> list[int]: ...
     @abstractmethod
-    def get(self, item_id: int): ...
+    def get(self, item_id: int) -> Any: ...
 
 
 class QuestionStore(StoreMixin):
@@ -232,14 +234,14 @@ class QuestionStore(StoreMixin):
 
     def get(self, question_id: int) -> QuestionEntity | None:
         with SessionLocal() as session:
-            row = cast(QuestionRow | None, session.get(QuestionRow, question_id))
+            row = session.get(QuestionRow, question_id)
             return None if row is None else question_row_to_entity(row)
 
     def get_by_public_id(self, public_id: str) -> QuestionEntity | None:
         with SessionLocal() as session:
-            row = cast(QuestionRow | None, session.scalars(
+            row = session.scalars(
                 select(QuestionRow).where(QuestionRow.public_id == public_id)
-            ).first())
+            ).first()
             if row is None:
                 return None
             return question_row_to_entity(row)
@@ -282,16 +284,23 @@ class PaperStore(StoreMixin):
         return PaperRow
 
     @staticmethod
-    def _resolve_question_refs(questions: list[QuestionRef]) -> list[PaperQuestionRow]:
+    def _resolve_question_refs(questions: list[QuestionRef], session) -> list[PaperQuestionRow]:
+        public_ids = [item.questionPublicId for item in questions]
+        id_map: dict[str, int] = {}
+        if public_ids:
+            rows = session.scalars(
+                select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.public_id.in_(public_ids))
+            ).all()
+            id_map = {r.public_id: r.id for r in rows}
         rows = []
         for item in sorted(questions, key=lambda item: item.orderNo):
-            question = QUESTIONS.get_by_public_id(item.questionPublicId)
-            if question is None:
+            question_id = id_map.get(item.questionPublicId)
+            if question_id is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail={"code": "QUESTION_NOT_FOUND", "message": f"Question '{item.questionPublicId}' not found"},
                 )
-            rows.append(PaperQuestionRow(question_id=question.id, order_no=item.orderNo, marks=item.marks))
+            rows.append(PaperQuestionRow(question_id=question_id, order_no=item.orderNo, marks=item.marks))
         return rows
 
     def values(self) -> list[PaperEntity]:
@@ -308,37 +317,38 @@ class PaperStore(StoreMixin):
             return [paper_row_to_entity(row, public_id_map) for row in rows]
 
     def keys(self) -> list[int]:
-        return [paper.id for paper in self.values()]
+        with SessionLocal() as session:
+            return list(session.scalars(select(PaperRow.id).order_by(PaperRow.id)).all())
 
     def get(self, paper_id: int) -> PaperEntity | None:
         with SessionLocal() as session:
-            row = cast(PaperRow | None, session.scalars(
+            row = session.scalars(
                 select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.id == paper_id)
-            ).first())
+            ).first()
             return None if row is None else paper_row_to_entity(row)
 
     def get_by_public_id(self, public_id: str) -> PaperEntity | None:
         with SessionLocal() as session:
-            row = cast(PaperRow | None, session.scalars(
+            row = session.scalars(
                 select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.public_id == public_id)
-            ).first())
+            ).first()
             if row is None:
                 return None
             return paper_row_to_entity(row)
 
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
-        question_rows = self._resolve_question_refs(payload.questions)
-        seen_question_ids: set[int] = set()
-        for item in question_rows:
-            if item.question_id in seen_question_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
-                )
-            seen_question_ids.add(item.question_id)
-        row_kwargs = paper_entity_to_row_kwargs(payload)
         with SessionLocal() as session:
+            question_rows = self._resolve_question_refs(payload.questions, session)
+            seen_question_ids: set[int] = set()
+            for item in question_rows:
+                if item.question_id in seen_question_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
+                    )
+                seen_question_ids.add(item.question_id)
+            row_kwargs = paper_entity_to_row_kwargs(payload)
             row = session.get(PaperRow, paper_id)
             if row is None:
                 row = PaperRow(**row_kwargs)
@@ -353,10 +363,18 @@ class PaperStore(StoreMixin):
             session.commit()
 
     def create(self, paper: PaperEntity) -> PaperEntity:
-        question_rows = self._resolve_question_refs(paper.questions)
-        row_kwargs = paper_entity_to_row_kwargs(paper)
-        row_kwargs.pop("id", None)
         with SessionLocal() as session:
+            question_rows = self._resolve_question_refs(paper.questions, session)
+            seen_question_ids: set[int] = set()
+            for item in question_rows:
+                if item.question_id in seen_question_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
+                    )
+                seen_question_ids.add(item.question_id)
+            row_kwargs = paper_entity_to_row_kwargs(paper)
+            row_kwargs.pop("id", None)
             row = PaperRow(**row_kwargs)
             row.questions = question_rows
             session.add(row)

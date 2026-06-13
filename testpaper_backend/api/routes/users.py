@@ -60,6 +60,17 @@ async def update_user(request: Request, user_public_id: str, payload: UserUpdate
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
 
         patch = payload.model_dump(exclude_unset=True)
+        if current_user.id == user_row.id:
+            if "role" in patch and patch["role"] is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "SELF_MODIFICATION_FORBIDDEN", "message": "Cannot modify your own role"},
+                )
+            if "isActive" in patch and not patch["isActive"]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "SELF_MODIFICATION_FORBIDDEN", "message": "Cannot deactivate your own account"},
+                )
         if "displayName" in patch:
             user_row.display_name = patch["displayName"]
         if "password" in patch:

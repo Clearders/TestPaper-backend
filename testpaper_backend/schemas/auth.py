@@ -102,7 +102,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     displayName: str | None = Field(default=None, min_length=1, max_length=120)
-    password: str | None = Field(default=None, min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
     role: UserRole | None = None
     isActive: bool | None = None
 
@@ -136,7 +136,7 @@ class ProfileUpdate(BaseModel):
 class PasswordChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     currentPassword: str = Field(min_length=1)
-    newPassword: str = Field(min_length=8, max_length=128)
+    newPassword: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
 
 
 class ImageUploadPayload(BaseModel):

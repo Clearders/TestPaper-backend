@@ -35,12 +35,14 @@ def register_security_headers(app: FastAPI) -> None:
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "font-src 'self' https://cdn.jsdelivr.net data:; "
             "img-src 'self' data: blob:; "
             "connect-src 'self' ws: wss:; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'"
         )
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 

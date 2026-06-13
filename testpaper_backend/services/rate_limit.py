@@ -44,8 +44,5 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Rate limiting failed for key '%s': %s", key, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"code": "RATE_LIMIT_UNAVAILABLE", "message": "Rate limiting is temporarily unavailable."},
-        ) from exc
+        logger.warning("Rate limiting unavailable for key '%s', allowing request: %s", key, exc)
+        return

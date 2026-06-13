@@ -17,6 +17,12 @@ class RequestIdFilter(logging.Filter):
 
 
 def configure_library_loggers() -> None:
+    import logging
+
+    root = logging.getLogger()
+    if any(isinstance(h, logging.StreamHandler) and any(isinstance(f, RequestIdFilter) for f in h.filters) for h in root.handlers):
+        return
+
     handler = logging.StreamHandler()
     handler.addFilter(RequestIdFilter())
     handler.setFormatter(logging.Formatter(

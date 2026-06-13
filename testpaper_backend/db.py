@@ -74,6 +74,7 @@ class PaperRow(Base):
     subject: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
     total_marks: Mapped[int] = mapped_column("totalMarks", Integer, nullable=False)
+    owner_id: Mapped[int | None] = mapped_column("ownerId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=PaperStatus.draft.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

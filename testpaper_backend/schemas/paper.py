@@ -24,6 +24,7 @@ class PaperBase(BaseModel):
     subject: str = Field(min_length=1)
     duration: int = Field(gt=0)
     totalMarks: int = Field(gt=0)
+    ownerId: int | None = None
 
     @model_validator(mode="after")
     def normalize_paper_base(self):

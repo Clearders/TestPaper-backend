@@ -19,9 +19,9 @@ def create_app(*, lifespan: Lifespan) -> FastAPI:
         title="TestPaper Backend",
         version="1.0.0",
         lifespan=lifespan,
-        docs_url="/docs-internal" if production else "/docs",
-        redoc_url="/redoc-internal" if production else "/redoc",
-        openapi_url="/openapi-internal.json" if production else "/openapi.json",
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
     )
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(

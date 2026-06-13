@@ -38,17 +38,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
 
 
+def _ensure_paper_owner_access(paper: PaperEntity, current_user) -> None:
+    if paper.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "FORBIDDEN", "message": "You can only modify papers you own"},
+    )
+
+
 @router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
 async def create_paper(request: Request, payload: PaperCreate, current_user: PapersWriteDep, _: RateLimitWriteDep):
     validate_unique_question_refs(payload.questions, "questions")
-    paper = create_paper_from_payload(payload)
+    paper = create_paper_from_payload(payload, owner_id=current_user.id)
     await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     logger.info("Paper created: %s", paper.publicId)
     return envelope(paper_with_questions(paper), request)
 
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
-async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: PapersWriteDep):
+async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: PapersWriteDep, _: RateLimitWriteDep):
     owner_id = current_user.id if payload.ownQuestionsOnly else None
     generated = generate_paper_with_genetic_algorithm(payload, owner_id=owner_id)
     if not generated["paperQuestions"]:
@@ -56,7 +65,7 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
         )
-    paper = generate_paper_from_result(payload, generated)
+    paper = generate_paper_from_result(payload, generated, owner_id=current_user.id)
     paper_payload = paper_with_questions(paper)
     await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
     logger.info("Paper generated: %s", paper.publicId)
@@ -89,8 +98,10 @@ async def update_paper(
     paper_public_id: str,
     payload: PaperUpdate,
     current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
+    _ensure_paper_owner_access(paper, current_user)
     data = paper.model_dump()
     patch = payload.model_dump(exclude_unset=True)
     data.update(patch)
@@ -107,8 +118,10 @@ async def add_paper_questions(
     paper_public_id: str,
     payload: list[QuestionRef],
     current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
+    _ensure_paper_owner_access(paper, current_user)
     validate_unique_question_refs(payload, "questions")
     existing_ids = {item.questionPublicId for item in paper.questions}
     existing_orders = {item.orderNo for item in paper.questions}
@@ -140,8 +153,10 @@ async def remove_paper_question(
     paper_public_id: str,
     question_public_id: str,
     current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
+    _ensure_paper_owner_access(paper, current_user)
     before = len(paper.questions)
     paper.questions = [item for item in paper.questions if item.questionPublicId != question_public_id]
     if len(paper.questions) == before:
@@ -164,8 +179,10 @@ async def reorder_paper_questions(
     paper_public_id: str,
     payload: QuestionOrderUpdate,
     current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
+    _ensure_paper_owner_access(paper, current_user)
     validate_unique_question_refs(
         [QuestionRef(questionPublicId=item.questionPublicId, orderNo=item.orderNo)
          for item in payload.orders],

@@ -48,12 +48,14 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 async def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
     username = payload.username.strip().lower()
     with SessionLocal() as session:
-        user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.username == username)).first())
+        user_row = session.scalars(select(UserRow).where(UserRow.username == username)).first()
+        if user_row is None or not user_row.is_active:
+            raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
         valid, needs_migration = verify_password(payload.password, user_row.password_hash)
-        if user_row is None or not user_row.is_active or not valid:
+        if not valid:
             raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
 
-        logger.info("User login: %s", username)
+        logger.info("User login attempt for user id: %d", user_row.id)
 
         if needs_migration:
             user_row.password_hash = password_hash(payload.password)

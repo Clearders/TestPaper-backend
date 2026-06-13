@@ -150,6 +150,7 @@ async def update_question(
     question_public_id: str,
     payload: QuestionUpdate,
     current_user: QuestionsWriteDep,
+    _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
@@ -169,7 +170,7 @@ async def update_question(
 
 
 @router.delete("/{question_public_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_question(question_public_id: str, current_user: QuestionsDeleteDep):
+async def delete_question(question_public_id: str, current_user: QuestionsDeleteDep, _: RateLimitWriteDep):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
     del QUESTIONS[question.id]

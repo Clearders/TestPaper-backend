@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 _REDIS_DB_PATTERN = re.compile(r"/(\d+)$")
 
@@ -162,6 +165,7 @@ def get_csrf_cookie_name() -> str:
 def get_trusted_hosts() -> list[str]:
     raw = os.getenv("TRUSTED_HOSTS")
     if not raw:
+        logger.warning("TRUSTED_HOSTS not configured, defaulting to '*' which disables host validation")
         return ["*"]
     return [host.strip() for host in raw.split(",") if host.strip()]
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from testpaper_backend.repositories import PAPERS, QUESTIONS
+from testpaper_backend.repositories import PAPERS, QUESTIONS, normalize_question_type
 from testpaper_backend.schemas import PaperEntity, QuestionOrder, QuestionRef, QuestionType
 from testpaper_backend.services.questions import question_to_dict
 
@@ -65,7 +65,7 @@ def build_export_questions(paper: PaperEntity, question_order: QuestionOrder, in
         QuestionType.essay: [],
     }
     for question in ordered_questions:
-        grouped[QuestionType(str(question["type"]).strip().lower())].append(question)
+        grouped[normalize_question_type(question["type"])].append(question)
     flattened: list[dict[str, Any]] = []
     question_types = (
         QuestionType.single_choice,

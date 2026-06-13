@@ -245,7 +245,10 @@ def query_questions_page(
     offset = (page - 1) * page_size
 
     with SessionLocal() as session:
-        total = int(session.scalar(select(func.count()).select_from(QuestionRow).where(statement.whereclause)) or 0)
+        count_stmt = select(func.count()).select_from(QuestionRow)
+        if statement.whereclause is not None:
+            count_stmt = count_stmt.where(statement.whereclause)
+        total = int(session.scalar(count_stmt) or 0)
         rows = session.scalars(statement.order_by(order_by, id_order).offset(offset).limit(page_size)).all()
 
     return {
