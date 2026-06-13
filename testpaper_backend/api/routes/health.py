@@ -38,17 +38,27 @@ async def postgres_health(request: Request):
 @router.get("/redis")
 async def redis_health(request: Request):
     try:
-        from testpaper_backend.redis_client import get_redis
+        from testpaper_backend.redis_client import get_async_redis
 
-        client = get_redis()
+        client = get_async_redis()
         start = perf_counter()
         await client.ping()
         latency_ms = round((perf_counter() - start) * 1000, 2)
-        info = cast(dict[str, Any], client.info(section="server"))
-        return envelope(
-            {"status": "connected", "redisVersion": info.get("redis_version"), "latencyMs": latency_ms},
-            request,
-        )
+        info = cast(dict[str, Any], await client.info())
+        result: dict[str, Any] = {
+            "status": "connected",
+            "redisVersion": info.get("redis_version"),
+            "latencyMs": latency_ms,
+            "usedMemoryHuman": info.get("used_memory_human"),
+            "connectedClients": info.get("connected_clients"),
+            "blockedClients": info.get("blocked_clients"),
+            "keyspaceHits": info.get("keyspace_hits"),
+            "keyspaceMisses": info.get("keyspace_misses"),
+            "instantaneousOpsPerSec": info.get("instantaneous_ops_per_sec"),
+        }
+        if not is_production():
+            result["uptimeInSeconds"] = info.get("uptime_in_seconds")
+        return envelope(result, request)
     except Exception as exc:
         error_msg = "Redis health check failed" if is_production() else str(exc)
         return envelope(

@@ -13,6 +13,10 @@ DEFAULT_CORS_ORIGINS = [
 ]
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+DEFAULT_REDIS_MAX_CONNECTIONS = 50
+DEFAULT_REDIS_SOCKET_TIMEOUT = 5.0
+DEFAULT_REDIS_SOCKET_CONNECT_TIMEOUT = 2.0
+DEFAULT_CELERY_REDIS_DB = "1"
 
 
 def normalize_database_url(url: str) -> str:
@@ -59,6 +63,39 @@ def get_redis_url() -> str:
     return os.getenv("REDIS_URL", DEFAULT_REDIS_URL)
 
 
+def get_redis_max_connections() -> int:
+    raw = os.getenv("REDIS_MAX_CONNECTIONS", str(DEFAULT_REDIS_MAX_CONNECTIONS))
+    try:
+        value = int(raw)
+        if value < 1:
+            raise ValueError
+        return value
+    except ValueError as exc:
+        raise RuntimeError("REDIS_MAX_CONNECTIONS must be a positive integer.") from exc
+
+
+def get_redis_socket_timeout() -> float:
+    raw = os.getenv("REDIS_SOCKET_TIMEOUT", str(DEFAULT_REDIS_SOCKET_TIMEOUT))
+    try:
+        value = float(raw)
+        if value <= 0:
+            raise ValueError
+        return value
+    except ValueError as exc:
+        raise RuntimeError("REDIS_SOCKET_TIMEOUT must be a positive number.") from exc
+
+
+def get_redis_socket_connect_timeout() -> float:
+    raw = os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", str(DEFAULT_REDIS_SOCKET_CONNECT_TIMEOUT))
+    try:
+        value = float(raw)
+        if value <= 0:
+            raise ValueError
+        return value
+    except ValueError as exc:
+        raise RuntimeError("REDIS_SOCKET_CONNECT_TIMEOUT must be a positive number.") from exc
+
+
 def get_auth_cookie_name() -> str:
     return os.getenv("AUTH_COOKIE_NAME", "testpapers_session")
 
@@ -81,13 +118,25 @@ def get_auth_cookie_samesite() -> Literal["lax", "strict", "none"]:
 
 
 def get_celery_broker_url() -> str:
-    raw = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
-    return raw
+    raw = os.getenv("CELERY_BROKER_URL")
+    if raw:
+        return raw
+    base = os.getenv("REDIS_URL", DEFAULT_REDIS_URL)
+    return _replace_redis_db(base, DEFAULT_CELERY_REDIS_DB)
 
 
 def get_celery_result_backend_url() -> str:
-    raw = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL") or DEFAULT_REDIS_URL
-    return raw
+    raw = os.getenv("CELERY_RESULT_BACKEND")
+    if raw:
+        return raw
+    base = os.getenv("REDIS_URL", DEFAULT_REDIS_URL)
+    return _replace_redis_db(base, DEFAULT_CELERY_REDIS_DB)
+
+
+def _replace_redis_db(url: str, db: str) -> str:
+    if url.rsplit("/", 1)[-1].isdigit():
+        return url.rsplit("/", 1)[0] + "/" + db
+    return url.rstrip("/") + "/" + db
 
 
 def get_app_env() -> str:
