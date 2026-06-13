@@ -6,7 +6,12 @@ from fastapi import Request, Response, status
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from testpaper_backend.config import get_csrf_cookie_name, get_auth_cookie_domain, get_auth_cookie_samesite, get_auth_cookie_secure
+from testpaper_backend.config import (
+    get_auth_cookie_domain,
+    get_auth_cookie_samesite,
+    get_auth_cookie_secure,
+    get_csrf_cookie_name,
+)
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 

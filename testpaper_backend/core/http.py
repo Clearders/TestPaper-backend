@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import traceback
+import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 
 from testpaper_backend.config import is_production
 from testpaper_backend.core.responses import error_envelope
+
+logger = logging.getLogger(__name__)
 
 
 def register_request_id_middleware(app: FastAPI) -> None:
@@ -58,7 +60,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
-        traceback.print_exc()
+        logger.exception("Unhandled exception")
         if is_production():
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

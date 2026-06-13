@@ -78,7 +78,7 @@ async def delete_user(user_public_id: str, current_user: UsersManageDep):
             detail={"code": "VALIDATION_ERROR", "message": "You cannot delete your own account"},
         )
     with SessionLocal() as session:
-        user_row = session.scalars(select(UserRow).where(UserRow.public_id == user_public_id)).first()
+        user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.public_id == user_public_id)).first())
         if user_row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
         session.delete(user_row)

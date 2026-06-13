@@ -25,7 +25,6 @@ from testpaper_backend.schemas import (
     QuestionBase,
     QuestionCorrectionCreate,
     QuestionCorrectionEntity,
-    QuestionCorrectionUpdate,
     QuestionCreate,
     QuestionEntity,
     QuestionRevisionEntity,
@@ -195,11 +194,6 @@ def validate_question_payload(payload: QuestionBase) -> None:
         )
 
 
-def question_has_tag(tag: str):
-    tag_values = func.jsonb_array_elements_text(QuestionRow.tags).table_valued("value").alias("tag_values")
-    return select(1).select_from(tag_values).where(func.lower(tag_values.c.value) == tag).exists()
-
-
 def query_questions_page(
     q: str | None = None,
     subjects: str | None = None,
@@ -221,11 +215,7 @@ def query_questions_page(
     if subjects:
         subject_list = [s.strip().lower() for s in subjects.split(",") if s.strip()]
         if subject_list:
-            subject_conditions = [
-                func.lower(func.coalesce(sql_cast(QuestionRow.subjects, String), "")).contains(s)
-                for s in subject_list
-            ]
-            statement = statement.where(or_(*subject_conditions))
+            statement = statement.where(QuestionRow.subjects.op("?|")(subject_list))
     if difficulty:
         statement = statement.where(QuestionRow.difficulty == difficulty.value)
     if question_type:
@@ -246,8 +236,8 @@ def query_questions_page(
         if search_answers:
             search_conditions.append(func.lower(sql_cast(QuestionRow.answer, String)).like(keyword_pattern))
         statement = statement.where(or_(*search_conditions))
-    for tag in tag_filters:
-        statement = statement.where(question_has_tag(tag))
+    if tag_filters:
+        statement = statement.where(QuestionRow.tags.op("?|")(tag_filters))
 
     sort_column = QUESTION_SORT_COLUMNS.get(sort_by or "createdAt", QUESTION_SORT_COLUMNS["createdAt"])
     order_by = sort_column.desc() if sort_order == SortOrder.desc else sort_column.asc()
@@ -255,7 +245,7 @@ def query_questions_page(
     offset = (page - 1) * page_size
 
     with SessionLocal() as session:
-        total = int(session.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0)
+        total = int(session.scalar(select(func.count()).select_from(QuestionRow).where(statement.whereclause)) or 0)
         rows = session.scalars(statement.order_by(order_by, id_order).offset(offset).limit(page_size)).all()
 
     return {

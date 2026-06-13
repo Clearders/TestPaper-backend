@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -11,11 +12,11 @@ from testpaper_backend.schemas import (
     Difficulty,
     EssayBlankSpace,
     PaperEntity,
-    QuestionRef,
     PaperStatus,
     QuestionBase,
     QuestionEntity,
     QuestionImage,
+    QuestionRef,
     QuestionType,
 )
 
@@ -141,14 +142,17 @@ def question_entity_to_row_kwargs(question: QuestionEntity) -> dict[str, Any]:
     }
 
 
-def paper_row_to_entity(row: PaperRow) -> PaperEntity:
+def paper_row_to_entity(row: PaperRow, public_id_map: dict[int, str] | None = None) -> PaperEntity:
     question_ids = [item.question_id for item in row.questions]
-    if question_ids:
-        with SessionLocal() as session:
-            rows = session.scalars(select(QuestionRow).where(QuestionRow.id.in_(question_ids))).all()
-            public_id_map = {r.id: r.public_id for r in rows}
-    else:
-        public_id_map = {}
+    if public_id_map is None:
+        if question_ids:
+            with SessionLocal() as session:
+                rows = session.scalars(
+                    select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))
+                ).all()
+                public_id_map = {r.id: r.public_id for r in rows}
+        else:
+            public_id_map = {}
     return PaperEntity(
         id=row.id,
         publicId=row.public_id,
@@ -187,7 +191,8 @@ class QuestionStore:
             return [question_row_to_entity(row) for row in rows]
 
     def keys(self) -> list[int]:
-        return [question.id for question in self.values()]
+        with SessionLocal() as session:
+            return list(session.scalars(select(QuestionRow.id).order_by(QuestionRow.id)).all())
 
     def items(self) -> list[tuple[int, QuestionEntity]]:
         return [(question.id, question) for question in self.values()]
@@ -262,14 +267,25 @@ class PaperStore:
         for item in sorted(questions, key=lambda item: item.orderNo):
             question = QUESTIONS.get_by_public_id(item.questionPublicId)
             if question is None:
-                raise KeyError(f"Question with publicId '{item.questionPublicId}' not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"code": "QUESTION_NOT_FOUND", "message": f"Question '{item.questionPublicId}' not found"},
+                )
             rows.append(PaperQuestionRow(question_id=question.id, order_no=item.orderNo, marks=item.marks))
         return rows
 
     def values(self) -> list[PaperEntity]:
         with SessionLocal() as session:
             rows = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).order_by(PaperRow.id)).all()
-            return [paper_row_to_entity(row) for row in rows]
+            all_question_ids = {item.question_id for row in rows for item in row.questions}
+            if all_question_ids:
+                q_rows = session.scalars(
+                    select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(all_question_ids))
+                ).all()
+                public_id_map = {r.id: r.public_id for r in q_rows}
+            else:
+                public_id_map = {}
+            return [paper_row_to_entity(row, public_id_map) for row in rows]
 
     def keys(self) -> list[int]:
         return [paper.id for paper in self.values()]
@@ -312,6 +328,14 @@ class PaperStore:
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
         question_rows = self._resolve_question_refs(payload.questions)
+        seen_question_ids: set[int] = set()
+        for item in question_rows:
+            if item.question_id in seen_question_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
+                )
+            seen_question_ids.add(item.question_id)
         row_kwargs = paper_entity_to_row_kwargs(payload)
         with SessionLocal() as session:
             row = session.get(PaperRow, paper_id)

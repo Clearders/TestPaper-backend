@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Literal
+
+_REDIS_DB_PATTERN = re.compile(r"/(\d+)$")
 
 DEFAULT_API_HOST = "0.0.0.0"
 DEFAULT_API_PORT = 8000
@@ -105,7 +108,9 @@ def get_auth_cookie_domain() -> str | None:
 
 
 def get_auth_cookie_secure() -> bool:
-    return os.getenv("AUTH_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"}
+    if "AUTH_COOKIE_SECURE" in os.environ:
+        return os.environ["AUTH_COOKIE_SECURE"].lower() in {"1", "true", "yes", "on"}
+    return is_production()
 
 
 def get_auth_cookie_samesite() -> Literal["lax", "strict", "none"]:
@@ -134,8 +139,8 @@ def get_celery_result_backend_url() -> str:
 
 
 def _replace_redis_db(url: str, db: str) -> str:
-    if url.rsplit("/", 1)[-1].isdigit():
-        return url.rsplit("/", 1)[0] + "/" + db
+    if _REDIS_DB_PATTERN.search(url):
+        return _REDIS_DB_PATTERN.sub(f"/{db}", url)
     return url.rstrip("/") + "/" + db
 
 

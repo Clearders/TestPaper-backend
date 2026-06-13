@@ -46,8 +46,13 @@ async def login(request: Request, response: Response, payload: LoginRequest, _: 
     username = payload.username.strip().lower()
     with SessionLocal() as session:
         user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.username == username)).first())
-        if user_row is None or not user_row.is_active or not verify_password(payload.password, user_row.password_hash):
+        valid, needs_migration = verify_password(payload.password, user_row.password_hash)
+        if user_row is None or not user_row.is_active or not valid:
             raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
+
+        if needs_migration:
+            user_row.password_hash = password_hash(payload.password)
+            session.commit()
 
         token, auth_session = create_auth_session(session, user_row)
         set_auth_cookie(response, token, auth_session.expiresAt)
@@ -147,7 +152,8 @@ async def update_profile(request: Request, payload: ProfileUpdate, current_user:
 async def change_password(payload: PasswordChange, current_user: CurrentUserDep):
     with SessionLocal() as session:
         user_row = cast(UserRow, session.get(UserRow, current_user.id))
-        if not verify_password(payload.currentPassword, user_row.password_hash):
+        valid, _ = verify_password(payload.currentPassword, user_row.password_hash)
+        if not valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={"code": "INVALID_PASSWORD", "message": "Current password is incorrect"},

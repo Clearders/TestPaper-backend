@@ -15,11 +15,11 @@ from testpaper_backend.schemas import (
     PaperCreate,
     PaperEntity,
     PaperGenerateRequest,
-    QuestionRef,
     PaperStatus,
     PaperUpdate,
     QuestionOrder,
     QuestionOrderUpdate,
+    QuestionRef,
 )
 from testpaper_backend.security import has_permission
 from testpaper_backend.services.paper_generation import generate_paper_with_genetic_algorithm
@@ -39,8 +39,11 @@ router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
 @router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
 async def create_paper(request: Request, payload: PaperCreate, current_user: PapersWriteDep):
     validate_unique_question_refs(payload.questions, "questions")
-    for item in payload.questions:
-        get_question_or_404(item.questionPublicId)
+    if not payload.questions:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
+        )
     paper = PaperEntity(
         id=0,
         publicId=str(uuid4()),
@@ -62,6 +65,11 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Pap
 async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: PapersWriteDep):
     owner_id = current_user.id if payload.ownQuestionsOnly else None
     generated = generate_paper_with_genetic_algorithm(payload, owner_id=owner_id)
+    if not generated["paperQuestions"]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
+        )
     paper = PaperEntity(
         id=0,
         publicId=str(uuid4()),
@@ -183,7 +191,11 @@ async def reorder_paper_questions(
     current_user: PapersWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
-    validate_unique_question_refs([QuestionRef(questionPublicId=item.questionPublicId, orderNo=item.orderNo) for item in payload.orders], "orders")
+    validate_unique_question_refs(
+        [QuestionRef(questionPublicId=item.questionPublicId, orderNo=item.orderNo)
+         for item in payload.orders],
+        "orders",
+    )
     order_map = {item.questionPublicId: item.orderNo for item in payload.orders}
     existing_ids = {item.questionPublicId for item in paper.questions}
     if set(order_map) != existing_ids:

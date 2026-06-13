@@ -4,7 +4,6 @@ from typing import Any
 
 from fastapi import Request
 
-
 from testpaper_backend.schemas import Envelope, MetaInfo
 
 

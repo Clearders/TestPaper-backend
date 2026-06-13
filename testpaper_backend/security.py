@@ -31,13 +31,15 @@ def _verify_pbkdf2(password: str, stored_hash: str) -> bool:
         return False
 
 
-def verify_password(password: str, stored_hash: str) -> bool:
+def verify_password(password: str, stored_hash: str) -> tuple[bool, bool]:
     if stored_hash.startswith("$argon2"):
         try:
-            return _ph.verify(stored_hash, password)
+            return _ph.verify(stored_hash, password), False
         except VerificationError:
-            return False
-    return _verify_pbkdf2(password, stored_hash)
+            return False, False
+    if _verify_pbkdf2(password, stored_hash):
+        return True, True
+    return False, False
 
 
 def permissions_for_role(role: UserRole | str) -> list[Permission]:

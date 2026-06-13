@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from celery import Celery, Task
 
 from testpaper_backend.config import get_celery_broker_url, get_celery_result_backend_url
@@ -33,8 +35,6 @@ class BaseTask(Task):
     abstract = True
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        import logging
-
         logger = logging.getLogger("celery.task")
         logger.error("Task %s[%s] failed: %s", self.name, task_id, exc, exc_info=einfo)
         super().on_failure(exc, task_id, args, kwargs, einfo)

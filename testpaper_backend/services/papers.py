@@ -67,6 +67,14 @@ def build_export_questions(paper: PaperEntity, question_order: QuestionOrder, in
     for question in ordered_questions:
         grouped[QuestionType(str(question["type"]).strip().lower())].append(question)
     flattened: list[dict[str, Any]] = []
-    for qtype in (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false, QuestionType.blank, QuestionType.short_answer, QuestionType.essay):
+    question_types = (
+        QuestionType.single_choice,
+        QuestionType.multiple_choice,
+        QuestionType.true_false,
+        QuestionType.blank,
+        QuestionType.short_answer,
+        QuestionType.essay,
+    )
+    for qtype in question_types:
         flattened.extend(grouped[qtype])
     return flattened

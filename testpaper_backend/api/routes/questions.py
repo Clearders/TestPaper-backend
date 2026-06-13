@@ -145,10 +145,13 @@ async def update_question(
 ):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
-    if "ownerId" in payload.model_fields_set and payload.ownerId is None and not has_permission(current_user, "users:manage"):
+    owner_id_set = "ownerId" in payload.model_fields_set
+    if not owner_id_set:
         payload.ownerId = current_user.id
     elif payload.ownerId is not None:
         payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
+    else:
+        payload.ownerId = normalize_question_owner(None, current_user)
     updated = apply_question_update(question, payload, current_user.id)
     QUESTIONS[question.id] = updated
     await realtime.broadcast("question.updated", {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id})

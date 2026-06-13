@@ -122,7 +122,7 @@ class QuestionCorrectionRow(Base):
 
 
 DATABASE_URL = get_database_url(required=False)
-engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True) if DATABASE_URL else None
+engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True, pool_size=20, max_overflow=10) if DATABASE_URL else None
 _SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine is not None else None
 
 

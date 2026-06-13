@@ -7,7 +7,7 @@ from itertools import chain
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import normalize_question_type, question_row_to_entity
@@ -35,6 +35,8 @@ class GeneticAlgorithmOptions:
 
 
 def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[int]:
+    if not questions:
+        return []
     weights = [max(0.01, question.scoreWeight) for question in questions]
     weight_total = sum(weights) or 1.0
     raw_marks = [max(1, total_marks * weight / weight_total) for weight in weights]
@@ -106,6 +108,10 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
     return normalized
 
 
+
+
+# ---- Phase 1: Candidate Selection ----
+
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
     subjects = [s.strip().lower() for s in payload.subjects if s.strip()]
     if not subjects:
@@ -158,6 +164,8 @@ def build_generation_features(questions: list[QuestionEntity]) -> dict[int, Gene
         for question in questions
     }
 
+
+# ---- Phase 2: Fitness Evaluation ----
 
 def individual_fitness(
     individual: list[int],
@@ -232,6 +240,8 @@ def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_
         selected_ids.add(replacement_id)
     return mutated
 
+
+# ---- Phase 3: Genetic Algorithm Loop ----
 
 def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_id: int | None = None) -> dict[str, Any]:
     candidates = build_generation_candidates(payload, owner_id=owner_id)

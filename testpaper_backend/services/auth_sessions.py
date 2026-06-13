@@ -7,7 +7,13 @@ from typing import cast
 from fastapi import Response
 from sqlalchemy.orm import Session
 
-from testpaper_backend.config import get_auth_cookie_domain, get_auth_cookie_name, get_auth_cookie_samesite, get_auth_cookie_secure, get_session_ttl_hours
+from testpaper_backend.config import (
+    get_auth_cookie_domain,
+    get_auth_cookie_name,
+    get_auth_cookie_samesite,
+    get_auth_cookie_secure,
+    get_session_ttl_hours,
+)
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import AuthSession
 from testpaper_backend.security import auth_error, user_row_to_entity
@@ -74,6 +80,7 @@ def refresh_auth_session(token: str | None) -> tuple[str, AuthSession]:
             session.commit()
             raise auth_error("ACCOUNT_DISABLED", "Account is disabled")
 
+        # Atomically delete old token and create new one within the same transaction
         session.delete(token_row)
         session.flush()
         return create_auth_session(session, user_row)
