@@ -44,6 +44,7 @@ def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dic
             continue
         resolved_questions.append({
             **question_to_dict(question, include_answer=include_answer),
+            "questionPublicId": item["questionPublicId"],
             "orderNo": item["orderNo"],
             "marks": item.get("marks"),
         })
