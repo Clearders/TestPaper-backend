@@ -149,10 +149,10 @@ def paper_row_to_entity(row: PaperRow, public_id_map: dict[int, str] | None = No
     if public_id_map is None:
         if question_ids:
             with SessionLocal() as session:
-                rows = session.scalars(
+                result = session.execute(
                     select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))
                 ).all()
-                public_id_map = {r.id: r.public_id for r in rows}
+                public_id_map = {r.id: r.public_id for r in result}
         else:
             public_id_map = {}
     return PaperEntity(
@@ -309,10 +309,10 @@ class PaperStore(StoreMixin):
             rows = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).order_by(PaperRow.id)).all()
             all_question_ids = {item.question_id for row in rows for item in row.questions}
             if all_question_ids:
-                q_rows = session.scalars(
+                result = session.execute(
                     select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(all_question_ids))
                 ).all()
-                public_id_map = {r.id: r.public_id for r in q_rows}
+                public_id_map = {r.id: r.public_id for r in result}
             else:
                 public_id_map = {}
             return [paper_row_to_entity(row, public_id_map) for row in rows]
