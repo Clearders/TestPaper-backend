@@ -49,6 +49,21 @@ class PaperUpdate(BaseModel):
     totalMarks: int | None = Field(default=None, gt=0)
     status: PaperStatus | None = None
 
+    @model_validator(mode="after")
+    def normalize_paper_update(self):
+        for field_name in ("title", "subject", "duration", "totalMarks", "status"):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        if self.title is not None:
+            self.title = self.title.strip()
+            if not self.title:
+                raise ValueError("title is required")
+        if self.subject is not None:
+            self.subject = self.subject.strip()
+            if not self.subject:
+                raise ValueError("subject is required")
+        return self
+
 
 class PaperEntity(PaperBase):
     id: int
@@ -83,10 +98,14 @@ class PaperGenerateRequest(BaseModel):
         self.difficultyCoefficient = round(self.difficultyCoefficient, 2)
         self.requiredTags = [tag.strip().lower() for tag in self.requiredTags if tag and tag.strip()]
         self.preferredTags = [tag.strip().lower() for tag in self.preferredTags if tag and tag.strip()]
-        self.subjects = [s.strip() for s in self.subjects if s.strip()]
+        self.requiredTags = list(dict.fromkeys(self.requiredTags))
+        self.preferredTags = list(dict.fromkeys(self.preferredTags))
+        self.subjects = list(dict.fromkeys(s.strip() for s in self.subjects if s and s.strip()))
         self.subject = ", ".join(self.subjects) if self.subjects else "-"
         if not self.title:
             raise ValueError("title is required")
+        if not self.subjects:
+            raise ValueError("At least one non-empty subject is required")
         return self
 
 

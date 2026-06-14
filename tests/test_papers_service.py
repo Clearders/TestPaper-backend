@@ -36,6 +36,7 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
     monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(
         get=questions.get,
         get_by_public_id=lambda pid: questions.get(int(pid[2:])),
+        get_by_public_ids=lambda public_ids: {pid: questions[int(pid[2:])] for pid in public_ids},
     ))
 
     paper = PaperEntity(

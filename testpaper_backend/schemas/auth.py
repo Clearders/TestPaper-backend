@@ -36,6 +36,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
     UserRole.teacher: {
         "questions:read",
         "questions:write",
+        "questions:delete",
         "answers:read",
         "papers:read",
         "papers:write",
@@ -76,6 +77,10 @@ class RegisterRequest(BaseModel):
     def normalize_register_request(self):
         self.username = self.username.strip().lower()
         self.displayName = self.displayName.strip()
+        if len(self.username) < 3:
+            raise ValueError("Username must contain at least 3 non-whitespace characters")
+        if not self.displayName:
+            raise ValueError("Display name is required")
         return self
 
 
@@ -114,6 +119,10 @@ class UserCreate(BaseModel):
     def normalize_user_create(self):
         self.username = self.username.strip().lower()
         self.displayName = self.displayName.strip()
+        if len(self.username) < 3:
+            raise ValueError("Username must contain at least 3 non-whitespace characters")
+        if not self.displayName:
+            raise ValueError("Display name is required")
         return self
 
 
@@ -133,8 +142,13 @@ class UserUpdate(BaseModel):
 
     @model_validator(mode="after")
     def normalize_user_update(self):
+        for field_name in ("displayName", "password", "role", "isActive"):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
         if self.displayName is not None:
             self.displayName = self.displayName.strip()
+            if not self.displayName:
+                raise ValueError("Display name is required")
         return self
 
 
@@ -153,8 +167,12 @@ class ProfileUpdate(BaseModel):
     def normalize_profile_update(self):
         if self.username is not None:
             self.username = self.username.strip().lower()
+            if len(self.username) < 3:
+                raise ValueError("Username must contain at least 3 non-whitespace characters")
         if self.displayName is not None:
             self.displayName = self.displayName.strip()
+            if not self.displayName:
+                raise ValueError("Display name is required")
         return self
 
 

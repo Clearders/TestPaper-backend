@@ -37,9 +37,10 @@ def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str)
 def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dict[str, Any]:
     normalized = paper.model_dump(mode="json")
     normalized["questions"] = sorted(normalized["questions"], key=lambda item: item["orderNo"])
+    questions_by_id = QUESTIONS.get_by_public_ids([item["questionPublicId"] for item in normalized["questions"]])
     resolved_questions = []
     for item in normalized["questions"]:
-        question = QUESTIONS.get_by_public_id(item["questionPublicId"])
+        question = questions_by_id.get(item["questionPublicId"])
         if question is None:
             continue
         resolved_questions.append({

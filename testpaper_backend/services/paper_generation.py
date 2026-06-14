@@ -113,7 +113,7 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
 # ---- Phase 1: Candidate Selection ----
 
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
-    subjects = [s.strip().lower() for s in payload.subjects if s.strip()]
+    subjects = [s.strip() for s in payload.subjects if s.strip()]
     if not subjects:
         raise ValueError("At least one subject is required")
     selected_types = {t.questionType for t in payload.questionTypes}

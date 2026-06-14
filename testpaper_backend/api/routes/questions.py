@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import QuestionsDeleteDep, QuestionsReadDep, QuestionsWriteDep, RateLimitWriteDep
 from testpaper_backend.api.routes.meta import invalidate_meta_cache
 from testpaper_backend.core.responses import envelope
-from testpaper_backend.db import SessionLocal
 from testpaper_backend.repositories import QUESTIONS
 from testpaper_backend.schemas import (
     Difficulty,
@@ -47,8 +46,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 
 
+def normalize_update_owner(payload: QuestionUpdate, current_user) -> None:
+    if has_permission(current_user, "users:manage"):
+        if "ownerId" in payload.model_fields_set and payload.ownerId is not None:
+            payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
+        return
+    payload.ownerId = current_user.id
+
+
 @router.get("", response_model=Envelope[PaginatedResponse[QuestionEntity]])
-async def list_questions(
+def list_questions(
     request: Request,
     current_user: QuestionsReadDep,
     q: str | None = None,
@@ -84,7 +91,7 @@ async def list_questions(
 
 
 @router.get("/mine", response_model=Envelope[PaginatedResponse[QuestionEntity]])
-async def list_my_questions(
+def list_my_questions(
     request: Request,
     current_user: QuestionsReadDep,
     q: str | None = None,
@@ -119,7 +126,7 @@ async def list_my_questions(
 
 
 @router.get("/{question_public_id}", response_model=Envelope[QuestionEntity])
-async def get_question(
+def get_question(
     request: Request,
     question_public_id: str,
     current_user: QuestionsReadDep,
@@ -130,8 +137,9 @@ async def get_question(
 
 
 @router.post("", response_model=Envelope[QuestionEntity], status_code=status.HTTP_201_CREATED)
-async def create_question(
+def create_question(
     request: Request,
+    background_tasks: BackgroundTasks,
     payload: QuestionCreate,
     current_user: QuestionsWriteDep,
     _: RateLimitWriteDep,
@@ -139,15 +147,20 @@ async def create_question(
     validate_question_payload(payload)
     payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
     question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
-    await realtime.broadcast("question.created", {"question": question_to_dict(question, include_answer=False), "actorId": current_user.id})
+    background_tasks.add_task(
+        realtime.broadcast,
+        "question.created",
+        {"question": question_to_dict(question, include_answer=False), "actorId": current_user.id},
+    )
     invalidate_meta_cache()
-    logger.info("Question created: %s by user %d", question.publicId, current_user.id)
+    logger.info("Question created: %s by user %s", question.publicId, current_user.publicId)
     return envelope(question_to_dict(question), request)
 
 
 @router.patch("/{question_public_id}", response_model=Envelope[QuestionEntity])
-async def update_question(
+def update_question(
     request: Request,
+    background_tasks: BackgroundTasks,
     question_public_id: str,
     payload: QuestionUpdate,
     current_user: QuestionsWriteDep,
@@ -155,32 +168,41 @@ async def update_question(
 ):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
-    payload.ownerId = current_user.id
+    normalize_update_owner(payload, current_user)
     updated, revision = apply_question_update(question, payload, current_user.id)
-    QUESTIONS[question.id] = updated
-    if revision is not None:
-        with SessionLocal() as session:
-            session.add(revision)
-            session.commit()
-    await realtime.broadcast("question.updated", {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id})
+    QUESTIONS.update_with_revision(question.id, updated, revision)
+    background_tasks.add_task(
+        realtime.broadcast,
+        "question.updated",
+        {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id},
+    )
     invalidate_meta_cache()
     logger.info("Question updated: %s", question_public_id)
     return envelope(question_to_dict(updated), request)
 
 
 @router.delete("/{question_public_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_question(question_public_id: str, current_user: QuestionsDeleteDep, _: RateLimitWriteDep):
+def delete_question(
+    background_tasks: BackgroundTasks,
+    question_public_id: str,
+    current_user: QuestionsDeleteDep,
+    _: RateLimitWriteDep,
+):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
     del QUESTIONS[question.id]
-    await realtime.broadcast("question.deleted", {"questionId": question.publicId, "actorId": current_user.id})
+    background_tasks.add_task(
+        realtime.broadcast,
+        "question.deleted",
+        {"questionId": question.publicId, "actorId": current_user.id},
+    )
     invalidate_meta_cache()
     logger.info("Question deleted: %s", question_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{question_public_id}/revisions", response_model=Envelope[list[QuestionRevisionEntity]])
-async def get_question_revisions(
+def get_question_revisions(
     request: Request,
     question_public_id: str,
     current_user: QuestionsReadDep,
@@ -191,11 +213,12 @@ async def get_question_revisions(
 
 
 @router.post("/{question_public_id}/corrections", response_model=Envelope[QuestionCorrectionEntity], status_code=status.HTTP_201_CREATED)
-async def create_question_correction(
+def create_question_correction(
     request: Request,
     question_public_id: str,
     payload: QuestionCorrectionCreate,
     current_user: QuestionsReadDep,
+    _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
     correction = create_correction(question.id, current_user.id, payload)
@@ -203,7 +226,7 @@ async def create_question_correction(
 
 
 @router.get("/{question_public_id}/corrections", response_model=Envelope[list[QuestionCorrectionEntity]])
-async def get_question_corrections(
+def get_question_corrections(
     request: Request,
     question_public_id: str,
     current_user: QuestionsReadDep,
@@ -214,12 +237,13 @@ async def get_question_corrections(
 
 
 @router.patch("/{question_public_id}/corrections/{correction_id}", response_model=Envelope[QuestionCorrectionEntity])
-async def update_question_correction(
+def update_question_correction(
     request: Request,
     question_public_id: str,
     correction_id: int,
     payload: QuestionCorrectionUpdate,
     current_user: QuestionsWriteDep,
+    _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
     if question.ownerId not in (None, current_user.id) and not has_permission(current_user, "users:manage"):
@@ -238,22 +262,26 @@ async def update_question_correction(
 
 
 @router.delete("/{question_public_id}/revisions/{revision_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_question_revision(
+def delete_question_revision(
     question_public_id: str,
     revision_id: int,
     current_user: QuestionsDeleteDep,
+    _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
+    ensure_question_owner_access(question, current_user)
     delete_revision(revision_id, question.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{question_public_id}/corrections/{correction_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_question_correction(
+def delete_question_correction(
     question_public_id: str,
     correction_id: int,
     current_user: QuestionsDeleteDep,
+    _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
+    ensure_question_owner_access(question, current_user)
     delete_correction_entry(correction_id, question.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

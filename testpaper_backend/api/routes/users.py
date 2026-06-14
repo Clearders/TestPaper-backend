@@ -4,11 +4,12 @@ import logging
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from testpaper_backend.api.dependencies import RateLimitWriteDep, UsersManageDep
 from testpaper_backend.core.responses import envelope
-from testpaper_backend.db import SessionLocal, UserRow
+from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import Envelope, UserCreate, UserEntity, UserRole, UserUpdate
 from testpaper_backend.security import password_hash, user_row_to_entity
 from testpaper_backend.time_utils import now_utc
@@ -19,14 +20,14 @@ router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 
 @router.get("", response_model=Envelope[list[UserEntity]])
-async def list_users(request: Request, current_user: UsersManageDep):
+def list_users(request: Request, current_user: UsersManageDep):
     with SessionLocal() as session:
         rows = session.scalars(select(UserRow).order_by(UserRow.id)).all()
         return envelope([user_row_to_entity(row).model_dump(mode="json") for row in rows], request)
 
 
 @router.post("", response_model=Envelope[UserEntity], status_code=status.HTTP_201_CREATED)
-async def create_user(request: Request, payload: UserCreate, current_user: UsersManageDep, _: RateLimitWriteDep):
+def create_user(request: Request, payload: UserCreate, current_user: UsersManageDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
         if existing is not None:
@@ -46,14 +47,21 @@ async def create_user(request: Request, payload: UserCreate, current_user: Users
             updated_at=now,
         )
         session.add(user_row)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
+            ) from exc
         session.refresh(user_row)
         logger.info("User created: %s", user_row.public_id)
         return envelope(user_row_to_entity(user_row).model_dump(mode="json"), request)
 
 
 @router.patch("/{user_public_id}", response_model=Envelope[UserEntity])
-async def update_user(request: Request, user_public_id: str, payload: UserUpdate, current_user: UsersManageDep, _: RateLimitWriteDep):
+def update_user(request: Request, user_public_id: str, payload: UserUpdate, current_user: UsersManageDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         user_row = cast(UserRow | None, session.scalars(select(UserRow).where(UserRow.public_id == user_public_id)).first())
         if user_row is None:
@@ -75,6 +83,7 @@ async def update_user(request: Request, user_public_id: str, payload: UserUpdate
             user_row.display_name = patch["displayName"]
         if "password" in patch:
             user_row.password_hash = password_hash(patch["password"])
+            session.execute(delete(AuthTokenRow).where(AuthTokenRow.user_id == user_row.id))
         if "role" in patch and patch["role"] is not None:
             user_row.role = patch["role"].value if isinstance(patch["role"], UserRole) else str(patch["role"])
         if "isActive" in patch:
@@ -87,7 +96,7 @@ async def update_user(request: Request, user_public_id: str, payload: UserUpdate
 
 
 @router.delete("/{user_public_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_public_id: str, current_user: UsersManageDep, _: RateLimitWriteDep):
+def delete_user(user_public_id: str, current_user: UsersManageDep, _: RateLimitWriteDep):
     if current_user.publicId == user_public_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

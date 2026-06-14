@@ -49,8 +49,15 @@ def get_database_url(*, required: bool = True) -> str | None:
 def get_cors_origins() -> list[str]:
     raw_origins = os.getenv("CORS_ORIGINS")
     if not raw_origins:
+        if is_production():
+            raise RuntimeError("CORS_ORIGINS is required in production.")
         return DEFAULT_CORS_ORIGINS
-    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    if not origins:
+        raise RuntimeError("CORS_ORIGINS must contain at least one origin.")
+    if is_production() and "*" in origins:
+        raise RuntimeError("CORS_ORIGINS cannot contain '*' in production.")
+    return origins
 
 
 def get_api_host() -> str:
@@ -165,9 +172,16 @@ def get_csrf_cookie_name() -> str:
 def get_trusted_hosts() -> list[str]:
     raw = os.getenv("TRUSTED_HOSTS")
     if not raw:
+        if is_production():
+            raise RuntimeError("TRUSTED_HOSTS is required in production.")
         logger.warning("TRUSTED_HOSTS not configured, defaulting to '*' which disables host validation")
         return ["*"]
-    return [host.strip() for host in raw.split(",") if host.strip()]
+    hosts = [host.strip() for host in raw.split(",") if host.strip()]
+    if not hosts:
+        raise RuntimeError("TRUSTED_HOSTS must contain at least one host.")
+    if is_production() and "*" in hosts:
+        raise RuntimeError("TRUSTED_HOSTS cannot contain '*' in production.")
+    return hosts
 
 
 def get_session_ttl_hours() -> int:

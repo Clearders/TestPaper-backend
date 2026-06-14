@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from testpaper_backend.api.dependencies import CurrentUserDep, RateLimitLoginDep, RateLimitRegisterDep, RateLimitWriteDep
 from testpaper_backend.core.csrf import clear_csrf_cookie, generate_csrf_token, set_csrf_cookie
@@ -44,7 +45,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=Envelope[AuthSession])
-async def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
+def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
     username = payload.username.strip().lower()
     with SessionLocal() as session:
         user_row = session.scalars(select(UserRow).where(UserRow.username == username)).first()
@@ -54,7 +55,7 @@ async def login(request: Request, response: Response, payload: LoginRequest, _: 
         if not valid:
             raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
 
-        logger.info("User login attempt for user id: %d", user_row.id)
+        logger.info("User login attempt for user: %s", user_row.public_id)
 
         if needs_migration:
             user_row.password_hash = password_hash(payload.password)
@@ -67,7 +68,7 @@ async def login(request: Request, response: Response, payload: LoginRequest, _: 
 
 
 @router.post("/register", response_model=Envelope[AuthSession], status_code=status.HTTP_201_CREATED)
-async def register(request: Request, response: Response, payload: RegisterRequest, _: RateLimitRegisterDep):
+def register(request: Request, response: Response, payload: RegisterRequest, _: RateLimitRegisterDep):
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
         if existing is not None:
@@ -87,28 +88,34 @@ async def register(request: Request, response: Response, payload: RegisterReques
             updated_at=now,
         )
         session.add(user_row)
-        session.flush()
-
-        token, auth_session = create_auth_session(session, user_row)
+        try:
+            session.flush()
+            token, auth_session = create_auth_session(session, user_row)
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
+            ) from exc
         set_auth_cookie(response, token, auth_session.expiresAt)
         set_csrf_cookie(response, generate_csrf_token())
         return envelope(auth_session.model_dump(mode="json"), request)
 
 
 @router.get("/me", response_model=Envelope[UserEntity])
-async def get_me(request: Request, current_user: CurrentUserDep):
+def get_me(request: Request, current_user: CurrentUserDep):
     return envelope(current_user.model_dump(mode="json"), request)
 
 
 @router.post("/refresh", response_model=Envelope[AuthSession])
-async def refresh_session(request: Request, response: Response):
+def refresh_session(request: Request, response: Response):
     token, auth_session = refresh_auth_session(get_request_token(request))
     set_auth_cookie(response, token, auth_session.expiresAt)
     return envelope(auth_session.model_dump(mode="json"), request)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request):
+def logout(request: Request):
     token = get_request_token(request)
     with SessionLocal() as session:
         token_row = session.get(AuthTokenRow, token) if token else None
@@ -122,7 +129,7 @@ async def logout(request: Request):
 
 
 @router.patch("/profile", response_model=Envelope[UserEntity])
-async def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep, _: RateLimitWriteDep):
+def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         user_row = session.get(UserRow, current_user.id)
         if user_row is None:
@@ -151,13 +158,20 @@ async def update_profile(request: Request, payload: ProfileUpdate, current_user:
             user_row.display_name = payload.displayName
 
         user_row.updated_at = now_utc()
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
+            ) from exc
         session.refresh(user_row)
         return envelope(user_row_to_entity(user_row).model_dump(mode="json"), request)
 
 
 @router.put("/password")
-async def change_password(payload: PasswordChange, current_user: CurrentUserDep, _: RateLimitWriteDep):
+def change_password(request: Request, payload: PasswordChange, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         user_row = session.get(UserRow, current_user.id)
         if user_row is None:
@@ -170,12 +184,17 @@ async def change_password(payload: PasswordChange, current_user: CurrentUserDep,
             )
         user_row.password_hash = password_hash(payload.newPassword)
         user_row.updated_at = now_utc()
+        current_token = get_request_token(request)
+        revoke_other_sessions = delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)
+        if current_token:
+            revoke_other_sessions = revoke_other_sessions.where(AuthTokenRow.token != current_token)
+        session.execute(revoke_other_sessions)
         session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/avatar", response_model=Envelope[ImageUploadResponse])
-async def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep, _: RateLimitWriteDep):
+def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep, _: RateLimitWriteDep):
     avatar = store_avatar(payload, current_user.publicId)
     with SessionLocal() as session:
         user_row = session.get(UserRow, current_user.id)
@@ -188,7 +207,7 @@ async def upload_avatar(request: Request, payload: ImageUploadPayload, current_u
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account(request: Request, current_user: CurrentUserDep, _: RateLimitWriteDep):
+def delete_account(request: Request, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         session.execute(
             delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)
@@ -199,7 +218,7 @@ async def delete_account(request: Request, current_user: CurrentUserDep, _: Rate
         user_row.is_active = False
         user_row.updated_at = now_utc()
         session.commit()
-        logger.info("Account deleted: %d", current_user.id)
+        logger.info("Account deleted: %s", current_user.publicId)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
     clear_csrf_cookie(response)

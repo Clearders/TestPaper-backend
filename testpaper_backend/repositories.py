@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from testpaper_backend.db import PaperQuestionRow, PaperRow, QuestionRow, SessionLocal
+from testpaper_backend.db import PaperQuestionRow, PaperRow, QuestionRevisionRow, QuestionRow, SessionLocal
 from testpaper_backend.schemas import (
     Difficulty,
     EssayBlankSpace,
@@ -247,7 +247,22 @@ class QuestionStore(StoreMixin):
                 return None
             return question_row_to_entity(row)
 
+    def get_by_public_ids(self, public_ids: list[str]) -> dict[str, QuestionEntity]:
+        if not public_ids:
+            return {}
+        with SessionLocal() as session:
+            rows = session.scalars(select(QuestionRow).where(QuestionRow.public_id.in_(set(public_ids)))).all()
+            return {row.public_id: question_row_to_entity(row) for row in rows}
+
     def __setitem__(self, question_id: int, question: QuestionEntity) -> None:
+        self.update_with_revision(question_id, question)
+
+    def update_with_revision(
+        self,
+        question_id: int,
+        question: QuestionEntity,
+        revision: QuestionRevisionRow | None = None,
+    ) -> None:
         payload = question.model_copy(update={"id": question_id}) if question.id != question_id else question
         row_kwargs = question_entity_to_row_kwargs(payload)
         with SessionLocal() as session:
@@ -259,6 +274,8 @@ class QuestionStore(StoreMixin):
                     if key == "id":
                         continue
                     setattr(row, key, value)
+            if revision is not None:
+                session.add(revision)
             session.commit()
 
     def create(self, question: QuestionEntity) -> QuestionEntity:
@@ -326,7 +343,11 @@ class PaperStore(StoreMixin):
             row = session.scalars(
                 select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.id == paper_id)
             ).first()
-            return None if row is None else paper_row_to_entity(row)
+            if row is None:
+                return None
+            question_ids = [item.question_id for item in row.questions]
+            result = session.execute(select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))).all()
+            return paper_row_to_entity(row, {item.id: item.public_id for item in result})
 
     def get_by_public_id(self, public_id: str) -> PaperEntity | None:
         with SessionLocal() as session:
@@ -335,7 +356,9 @@ class PaperStore(StoreMixin):
             ).first()
             if row is None:
                 return None
-            return paper_row_to_entity(row)
+            question_ids = [item.question_id for item in row.questions]
+            result = session.execute(select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))).all()
+            return paper_row_to_entity(row, {item.id: item.public_id for item in result})
 
     def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
@@ -363,12 +386,12 @@ class PaperStore(StoreMixin):
                 row.questions = question_rows
             try:
                 session.commit()
-            except IntegrityError:
+            except IntegrityError as exc:
                 session.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
-                )
+                ) from exc
 
     def create(self, paper: PaperEntity) -> PaperEntity:
         with SessionLocal() as session:
@@ -388,12 +411,12 @@ class PaperStore(StoreMixin):
             session.add(row)
             try:
                 session.commit()
-            except IntegrityError:
+            except IntegrityError as exc:
                 session.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
-                )
+                ) from exc
             session.refresh(row)
             return paper_row_to_entity(row)
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import suppress
 from typing import Any
+from uuid import uuid4
 
 from fastapi import WebSocket
 
@@ -12,6 +14,7 @@ from testpaper_backend.redis_client import get_async_redis
 
 MAX_CONNECTIONS_PER_IP = 10
 BROADCAST_CHANNEL = "testpaper:broadcast"
+logger = logging.getLogger(__name__)
 
 
 def _get_websocket_ip(websocket: WebSocket) -> str:
@@ -27,28 +30,53 @@ class RealtimeConnectionManager:
         self._ip_connections: dict[str, set[WebSocket]] = {}
         self._pubsub: Any = None
         self._pubsub_task: asyncio.Task[None] | None = None
+        self._source_id = uuid4().hex
 
     def can_connect(self, ip: str) -> bool:
         return len(self._ip_connections.get(ip, set())) < MAX_CONNECTIONS_PER_IP
 
     async def _ensure_pubsub(self) -> None:
-        if self._pubsub_task is not None:
+        if self._pubsub_task is not None and not self._pubsub_task.done():
             return
-        if self._pubsub is None:
-            async_redis = get_async_redis()
-            self._pubsub = async_redis.pubsub()
-            await self._pubsub.subscribe(BROADCAST_CHANNEL)
         self._pubsub_task = asyncio.create_task(self._listen_pubsub())
 
     async def _listen_pubsub(self) -> None:
         try:
-            async for message in self._pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                data = json.loads(message["data"])
-                await self._local_send(data["event"], data["payload"])
+            while True:
+                try:
+                    if self._pubsub is None:
+                        async_redis = get_async_redis()
+                        self._pubsub = async_redis.pubsub()
+                        await self._pubsub.subscribe(BROADCAST_CHANNEL)
+                    async for message in self._pubsub.listen():
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            data = json.loads(message["data"])
+                            event = data["event"]
+                            payload = data["payload"]
+                            if not isinstance(event, str) or not isinstance(payload, dict):
+                                raise ValueError("Realtime event must contain a string event and object payload")
+                        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                            logger.warning("Ignoring malformed realtime event", exc_info=True)
+                            continue
+                        if data.get("source") == self._source_id:
+                            continue
+                        await self._local_send(event, payload)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Realtime Redis subscriber disconnected; retrying")
+                    if self._pubsub is not None:
+                        with suppress(Exception):
+                            await self._pubsub.close()
+                        self._pubsub = None
+                    await asyncio.sleep(1)
         except asyncio.CancelledError:
-            pass
+            raise
+        finally:
+            if self._pubsub_task is asyncio.current_task():
+                self._pubsub_task = None
 
     async def _local_send(self, event: str, payload: dict[str, Any]) -> None:
         if not self._connections:
@@ -80,18 +108,15 @@ class RealtimeConnectionManager:
             ip_set.discard(websocket)
             if not ip_set:
                 del self._ip_connections[ip]
-        if not self._connections and self._pubsub_task is not None:
-            self._pubsub_task.cancel()
-            self._pubsub_task = None
 
     async def broadcast(self, event: str, payload: dict[str, Any]) -> None:
         await self._local_send(event, payload)
         try:
             async_redis = get_async_redis()
-            message = json.dumps({"event": event, "payload": payload}, default=str)
+            message = json.dumps({"event": event, "payload": payload, "source": self._source_id}, default=str)
             await async_redis.publish(BROADCAST_CHANNEL, message)
         except Exception:
-            pass
+            logger.warning("Realtime Redis publish failed; local clients were still notified", exc_info=True)
 
     async def shutdown(self) -> None:
         if self._pubsub_task is not None:
@@ -115,4 +140,4 @@ def get_websocket_token(websocket: WebSocket) -> str | None:
     cookie_token = websocket.cookies.get(get_auth_cookie_name())
     if cookie_token:
         return cookie_token
-    return websocket.query_params.get("token")
+    return None

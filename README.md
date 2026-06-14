@@ -15,7 +15,7 @@ FastAPI backend for the TestPapers test paper management and auto-generation sys
 | FastAPI | Web framework (REST + WebSocket) |
 | SQLAlchemy 2.0 | ORM with session support |
 | PostgreSQL | Primary database (JSONB columns for tags/options/images/subjects) |
-| Alembic | Database migration management (12 versions) |
+| Alembic | Database migration management (14 versions) |
 | Redis | Caching, Celery message broker, session rate-limiting |
 | Celery | Async task queue (exports, validation, stats, cleanup) |
 | Argon2-cffi | Password hashing (argon2id + pbkdf2_sha256 fallback) |
@@ -25,7 +25,7 @@ FastAPI backend for the TestPapers test paper management and auto-generation sys
 
 ```text
 TestPaper-backend/
-  alembic/                       # Database migrations (12 versions)
+  alembic/                       # Database migrations (14 versions)
     versions/
       20260507_0001_initial_schema.py
       20260508_0002_personal_questions_and_images.py
@@ -120,6 +120,9 @@ celery -A testpaper_backend.worker.celery_app:celery worker --loglevel=info
 # Database migrations
 alembic upgrade head
 
+# Create or reset the first administrator (prompts for a password)
+python scripts/bootstrap_admin.py
+
 # Lint and tests
 ruff check .
 pytest
@@ -163,7 +166,7 @@ All application routes are under `/api/v1`. For the full API specification, see 
 |---|---|---|---|
 | Root | `/` | 1 | Service info (`GET /` returns version and service name) |
 | Auth | `/api/v1/auth` | 9 | Login, register, refresh, logout, me, profile, password, avatar, account |
-| WebSocket | `/api/v1/ws` | 1 | Authenticated realtime events (token via Bearer, Cookie, or query param) |
+| WebSocket | `/api/v1/ws` | 1 | Authenticated realtime events (token via Bearer or Cookie) |
 | Users | `/api/v1/users` | 4 | Admin user management (CRUD via publicId) |
 | Questions | `/api/v1/questions` | 12 | Question CRUD, search, personal bank, revisions, corrections |
 | Papers | `/api/v1/papers` | 9 | Paper CRUD, genetic algorithm generation, DOCX download, export preview |
@@ -176,7 +179,7 @@ All application routes are under `/api/v1`. For the full API specification, see 
 
 - Uses HttpOnly Cookie (`testpapers_session`) for browser-based authentication
 - `Authorization: Bearer <token>` is supported as a fallback for non-browser clients
-- WebSocket accepts token via Cookie, `Authorization` header, or `?token=` query parameter
+- WebSocket accepts token via Cookie or `Authorization` header; tokens are never accepted in URLs
 - CSRF protection via `testpapers_csrf` Cookie + `X-CSRF-Token` header for non-safe methods
 - `/auth/login` and `/auth/register` exempt from CSRF checks
 - Session tokens expire after 12 hours (configurable via `SESSION_TTL_HOURS`)
@@ -197,7 +200,7 @@ All application routes are under `/api/v1`. For the full API specification, see 
 |---|---|---|---|
 | `questions:read` | ✓ | ✓ | ✓ |
 | `questions:write` | ✓ | ✓ | ✗ |
-| `questions:delete` | ✓ | ✗ | ✗ |
+| `questions:delete` | ✓ | ✓ (own) | ✗ |
 | `answers:read` | ✓ | ✓ | ✗ |
 | `papers:read` | ✓ | ✓ | ✓ |
 | `papers:write` | ✓ | ✓ | ✗ |
@@ -288,7 +291,7 @@ Run all migrations:
 alembic upgrade head
 ```
 
-Current migration history (12 versions):
+Current migration history (14 versions):
 
 | Version | Description |
 |---|---|
@@ -304,3 +307,10 @@ Current migration history (12 versions):
 | `0010` | Subject to subjects array |
 | `0011` | Add revisions and corrections tables |
 | `0012` | Add user profile fields (avatar_url, last_username_changed_at) |
+| `0013` | Add paper ownership |
+| `0014` | Disable unchanged legacy demo accounts |
+
+Fresh databases do not receive default users. Run `python scripts/bootstrap_admin.py`
+after migrating to create the first administrator. The script can also read
+`TESTPAPER_ADMIN_USERNAME`, `TESTPAPER_ADMIN_DISPLAY_NAME`, and
+`TESTPAPER_ADMIN_PASSWORD` for non-interactive provisioning.

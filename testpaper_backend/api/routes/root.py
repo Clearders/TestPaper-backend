@@ -8,6 +8,5 @@ router = APIRouter()
 
 
 @router.get("/")
-async def root(request: Request):
+def root(request: Request):
     return envelope({"service": "TestPaper Backend", "version": "1.0.0"}, request)
-

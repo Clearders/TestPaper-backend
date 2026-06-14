@@ -10,6 +10,7 @@ from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 from testpaper_backend.services.profiles import AVATAR_UPLOAD_DIR
 
 app = create_app(lifespan=lifespan)
+IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/v1/images/files",
     StaticFiles(directory=str(IMAGE_UPLOAD_DIR)),
@@ -25,4 +26,3 @@ register_request_id_middleware(app)
 register_security_headers(app)
 register_exception_handlers(app)
 app.include_router(router)
-

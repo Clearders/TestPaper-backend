@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/v1/images", tags=["images"])
 
 
 @router.post("/upload", response_model=Envelope[ImageUploadResponse])
-async def upload_image(
+def upload_image(
     request: Request,
     payload: ImageUploadPayload,
     current_user: QuestionsWriteDep,

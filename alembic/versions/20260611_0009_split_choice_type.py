@@ -27,7 +27,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("ALTER TABLE questions ADD COLUMN answer_text VARCHAR")
-    op.execute("UPDATE questions SET answer_text = answer ->> 0 WHERE jsonb_typeof(answer) = 'string'")
+    op.execute("UPDATE questions SET answer_text = answer #>> '{}' WHERE jsonb_typeof(answer) = 'string'")
     op.execute("UPDATE questions SET answer_text = answer::text WHERE jsonb_typeof(answer) = 'array'")
     op.execute("ALTER TABLE questions DROP COLUMN answer")
     op.execute("ALTER TABLE questions RENAME COLUMN answer_text TO answer")

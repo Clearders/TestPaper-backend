@@ -30,12 +30,13 @@ include = ["testpaper_backend*"]
 exclude = ["alembic*", "tests*", "scripts*"]
 
 [tool.setuptools.package-data]
-testpaper_backend = ["documents/ExamPaperTemplate.docx"]
+testpaper_backend = ["documents/*.docx"]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.0",
     "ruff>=0.14.0",
+    "setuptools>=68",
 ]
 
 [tool.ruff]

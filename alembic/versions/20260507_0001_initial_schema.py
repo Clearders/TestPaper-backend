@@ -7,7 +7,6 @@ Create Date: 2026-05-07 00:01:00
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Sequence, Union
@@ -21,12 +20,6 @@ revision: str = "20260507_0001"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
-
-def password_hash(password: str, salt: str) -> str:
-    iterations = 120_000
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
-    return f"pbkdf2_sha256${iterations}${salt}${digest}"
 
 
 def sql_str(value: str | None) -> str:
@@ -243,36 +236,6 @@ def insert_seed_questions(now: datetime) -> None:
     )
 
 
-def insert_seed_users(now: datetime) -> None:
-    users = [
-        ("admin", "System Admin", password_hash("admin123", "testpapers_admin_seed"), "admin"),
-        ("teacher", "Teacher", password_hash("teacher123", "testpapers_teacher_seed"), "teacher"),
-        ("viewer", "Read Only Viewer", password_hash("viewer123", "testpapers_viewer_seed"), "viewer"),
-    ]
-    values = [
-        "("
-        f"{sql_str(username)}, "
-        f"{sql_str(display_name)}, "
-        f"{sql_str(hashed_password)}, "
-        f"{sql_str(role)}, "
-        "TRUE, "
-        f"{sql_ts(now)}, "
-        f"{sql_ts(now)}"
-        ")"
-        for username, display_name, hashed_password, role in users
-    ]
-    op.execute(
-        sa.text(
-            """
-            INSERT INTO users
-                (username, "displayName", "passwordHash", role, "isActive", created_at, updated_at)
-            VALUES
-            """
-            + ",\n".join(values)
-        )
-    )
-
-
 def upgrade() -> None:
     op.create_table(
         "users",
@@ -348,7 +311,6 @@ def upgrade() -> None:
 
     now = datetime.now(timezone.utc)
     insert_seed_questions(now)
-    insert_seed_users(now)
 
 
 def downgrade() -> None:

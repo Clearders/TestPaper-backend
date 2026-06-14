@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
@@ -48,16 +48,32 @@ def _ensure_paper_owner_access(paper: PaperEntity, current_user) -> None:
 
 
 @router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
-async def create_paper(request: Request, payload: PaperCreate, current_user: PapersWriteDep, _: RateLimitWriteDep):
+def create_paper(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: PaperCreate,
+    current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
+):
     validate_unique_question_refs(payload.questions, "questions")
     paper = create_paper_from_payload(payload, owner_id=current_user.id)
-    await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    background_tasks.add_task(
+        realtime.broadcast,
+        "paper.created",
+        {"paper": paper.model_dump(mode="json"), "actorId": current_user.id},
+    )
     logger.info("Paper created: %s", paper.publicId)
     return envelope(paper_with_questions(paper), request)
 
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
-async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: PapersWriteDep, _: RateLimitWriteDep):
+def generate_paper(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: PaperGenerateRequest,
+    current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
+):
     candidate_owner = current_user.id if payload.ownQuestionsOnly else None
     generated = generate_paper_with_genetic_algorithm(payload, owner_id=candidate_owner)
     if not generated["paperQuestions"]:
@@ -67,7 +83,11 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
         )
     paper = generate_paper_from_result(payload, generated, owner_id=current_user.id)
     paper_payload = paper_with_questions(paper)
-    await realtime.broadcast("paper.created", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    background_tasks.add_task(
+        realtime.broadcast,
+        "paper.created",
+        {"paper": paper.model_dump(mode="json"), "actorId": current_user.id},
+    )
     logger.info("Paper generated: %s", paper.publicId)
     return envelope(
         {
@@ -79,7 +99,7 @@ async def generate_paper(request: Request, payload: PaperGenerateRequest, curren
 
 
 @router.get("/{paper_public_id}", response_model=Envelope[PaperEntity])
-async def get_paper(
+def get_paper(
     request: Request,
     paper_public_id: str,
     current_user: PapersReadDep,
@@ -93,8 +113,9 @@ async def get_paper(
 
 
 @router.patch("/{paper_public_id}", response_model=Envelope[PaperEntity])
-async def update_paper(
+def update_paper(
     request: Request,
+    background_tasks: BackgroundTasks,
     paper_public_id: str,
     payload: PaperUpdate,
     current_user: PapersWriteDep,
@@ -108,13 +129,18 @@ async def update_paper(
     data["updatedAt"] = now_utc()
     updated = PaperEntity(**data)
     PAPERS[paper.id] = updated
-    await realtime.broadcast("paper.updated", {"paper": updated.model_dump(mode="json"), "actorId": current_user.id})
+    background_tasks.add_task(
+        realtime.broadcast,
+        "paper.updated",
+        {"paper": updated.model_dump(mode="json"), "actorId": current_user.id},
+    )
     return envelope(updated.model_dump(mode="json"), request)
 
 
 @router.post("/{paper_public_id}/questions", response_model=Envelope[PaperEntity])
-async def add_paper_questions(
+def add_paper_questions(
     request: Request,
+    background_tasks: BackgroundTasks,
     paper_public_id: str,
     payload: list[QuestionRef],
     current_user: PapersWriteDep,
@@ -144,13 +170,14 @@ async def add_paper_questions(
     paper.updatedAt = now_utc()
     PAPERS[paper.id] = paper
     payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
-    await realtime.broadcast("paper.questions.added", payload)
+    background_tasks.add_task(realtime.broadcast, "paper.questions.added", payload)
     return envelope(paper_with_questions(paper), request)
 
 
 @router.delete("/{paper_public_id}/questions/{question_public_id}", response_model=Envelope[PaperEntity])
-async def remove_paper_question(
+def remove_paper_question(
     request: Request,
+    background_tasks: BackgroundTasks,
     paper_public_id: str,
     question_public_id: str,
     current_user: PapersWriteDep,
@@ -167,7 +194,8 @@ async def remove_paper_question(
         )
     paper.updatedAt = now_utc()
     PAPERS[paper.id] = paper
-    await realtime.broadcast(
+    background_tasks.add_task(
+        realtime.broadcast,
         "paper.question.removed",
         {"paper": paper.model_dump(mode="json"), "questionId": question_public_id, "actorId": current_user.id, "paperId": paper.publicId},
     )
@@ -175,8 +203,9 @@ async def remove_paper_question(
 
 
 @router.put("/{paper_public_id}/questions/order", response_model=Envelope[PaperEntity])
-async def reorder_paper_questions(
+def reorder_paper_questions(
     request: Request,
+    background_tasks: BackgroundTasks,
     paper_public_id: str,
     payload: QuestionOrderUpdate,
     current_user: PapersWriteDep,
@@ -204,12 +233,12 @@ async def reorder_paper_questions(
     paper.updatedAt = now_utc()
     PAPERS[paper.id] = paper
     payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
-    await realtime.broadcast("paper.questions.reordered", payload)
+    background_tasks.add_task(realtime.broadcast, "paper.questions.reordered", payload)
     return envelope(paper_with_questions(paper), request)
 
 
 @router.post("/{paper_public_id}/export-preview", response_model=Envelope[dict])
-async def export_preview(
+def export_preview(
     request: Request,
     paper_public_id: str,
     payload: ExportPreviewRequest,
@@ -228,7 +257,7 @@ async def export_preview(
 
 
 @router.get("/{paper_public_id}/download")
-async def download_paper(
+def download_paper(
     paper_public_id: str,
     current_user: PapersReadDep,
     format: str = Query(default="docx", pattern="^docx$"),

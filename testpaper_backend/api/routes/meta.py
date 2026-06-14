@@ -29,7 +29,7 @@ def invalidate_meta_cache() -> None:
 
 
 @router.get("/subjects", response_model=Envelope[list[str]])
-async def list_subjects(request: Request, current_user: QuestionsReadDep):
+def list_subjects(request: Request, current_user: QuestionsReadDep):
     try:
         client = get_redis()
         cached = client.get(CACHE_KEY_SUBJECTS)
@@ -54,7 +54,7 @@ async def list_subjects(request: Request, current_user: QuestionsReadDep):
 
 
 @router.get("/tags", response_model=Envelope[list[str]])
-async def list_tags(request: Request, current_user: QuestionsReadDep):
+def list_tags(request: Request, current_user: QuestionsReadDep):
     try:
         client = get_redis()
         cached = client.get(CACHE_KEY_TAGS)

@@ -69,6 +69,18 @@ class QuestionBase(BaseModel):
     @model_validator(mode="after")
     def validate_question_type(self):
         option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
+        self.text = self.text.strip()
+        self.tags = list(dict.fromkeys(tag.strip().lower() for tag in self.tags if tag and tag.strip()))
+        self.subjects = list(dict.fromkeys(subject.strip() for subject in self.subjects if subject and subject.strip()))
+        if self.options is not None:
+            self.options = [option.strip() for option in self.options if option and option.strip()]
+        if self.source is not None:
+            self.source = self.source.strip() or None
+
+        if not self.text:
+            raise ValueError("Question text is required")
+        if not self.subjects:
+            raise ValueError("At least one non-empty subject is required")
         if self.type in option_types:
             if not self.options:
                 raise ValueError(f"{self.type.value} questions require options")
@@ -80,13 +92,6 @@ class QuestionBase(BaseModel):
                 self.essayBlankSpace = EssayBlankSpace(lines=6, lineHeight=28)
         else:
             self.essayBlankSpace = None
-
-        self.tags = [tag.strip() for tag in self.tags if tag and tag.strip()]
-        self.subjects = [s.strip() for s in self.subjects if s and s.strip()]
-        if self.options is not None:
-            self.options = [option.strip() for option in self.options if option and option.strip()]
-        if self.source is not None:
-            self.source = self.source.strip() or None
         return self
 
     @model_validator(mode="after")
@@ -94,8 +99,12 @@ class QuestionBase(BaseModel):
         if self.type == QuestionType.multiple_choice:
             if self.answer and not isinstance(self.answer, list):
                 raise ValueError("multiple_choice questions require answer to be a list")
+            if isinstance(self.answer, list):
+                self.answer = list(dict.fromkeys(item.strip() for item in self.answer if item and item.strip()))
         elif self.answer and not isinstance(self.answer, str):
             raise ValueError(f"{self.type.value} questions require answer to be a string")
+        elif isinstance(self.answer, str):
+            self.answer = self.answer.strip()
         return self
 
 
@@ -141,6 +150,13 @@ class QuestionCorrectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     category: CorrectionCategory
     message: str = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def normalize_message(self):
+        self.message = self.message.strip()
+        if not self.message:
+            raise ValueError("Correction message is required")
+        return self
 
 
 class QuestionCorrectionUpdate(BaseModel):

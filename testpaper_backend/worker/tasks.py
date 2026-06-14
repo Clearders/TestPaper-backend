@@ -126,10 +126,23 @@ def _to_csv_format(result: dict[str, Any]) -> dict[str, Any]:
     writer.writerow(["Order", "Type", "Subjects", "Difficulty", "Question", "Answer", "Marks"])
     for i, q in enumerate(result["questions"], 1):
         writer.writerow([
-            i, q.get("type"), ", ".join(q.get("subjects", [])), q.get("difficulty"),
-            q.get("text"), q.get("answer", ""), q.get("marks"),
+            i,
+            _csv_safe(q.get("type")),
+            _csv_safe(", ".join(q.get("subjects", []))),
+            _csv_safe(q.get("difficulty")),
+            _csv_safe(q.get("text")),
+            _csv_safe(q.get("answer", "")),
+            q.get("marks"),
         ])
     return {"csv": buf.getvalue(), "exportedAt": result["exportedAt"]}
+
+
+def _csv_safe(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
 
 
 def _to_txt_format(result: dict[str, Any]) -> dict[str, Any]:

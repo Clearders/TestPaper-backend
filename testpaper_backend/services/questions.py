@@ -81,7 +81,7 @@ def apply_question_update(
     else:
         data["essayBlankSpace"] = None
 
-    data["tags"] = [tag.strip() for tag in (data.get("tags") or []) if tag and tag.strip()]
+    data["tags"] = [tag.strip().lower() for tag in (data.get("tags") or []) if tag and tag.strip()]
     data["subjects"] = [s.strip() for s in (data.get("subjects") or []) if s and s.strip()]
     if data.get("source") is not None:
         data["source"] = data["source"].strip() or None
@@ -212,7 +212,7 @@ def query_questions_page(
 
     statement = select(QuestionRow)
     if subjects:
-        subject_list = [s.strip().lower() for s in subjects.split(",") if s.strip()]
+        subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
         if subject_list:
             statement = statement.where(QuestionRow.subjects.op("?|")(subject_list))
     if difficulty:
