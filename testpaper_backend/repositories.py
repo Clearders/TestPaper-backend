@@ -289,10 +289,10 @@ class PaperStore(StoreMixin):
         public_ids = [item.questionPublicId for item in questions]
         id_map: dict[str, int] = {}
         if public_ids:
-            rows = session.scalars(
+            result = session.execute(
                 select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.public_id.in_(public_ids))
             ).all()
-            id_map = {r.public_id: r.id for r in rows}
+            id_map = {r.public_id: r.id for r in result}
         rows = []
         for item in sorted(questions, key=lambda item: item.orderNo):
             question_id = id_map.get(item.questionPublicId)
