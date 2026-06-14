@@ -16,7 +16,7 @@ from testpaper_backend.schemas import PaperEntity
 from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("ExamPaperTemplate.docx")
+DEFAULT_TEMPLATE_PATH = Path(__file__).with_name("试卷模板.docx")
 _DOCX_NS = (
     'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
     'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
@@ -276,7 +276,35 @@ def _build_docx_from_template(
 
 
 def _replace_template_title(document_xml: str, paper_title: str) -> str:
-    return document_xml.replace(f"<w:t>{escape(_TEMPLATE_TITLE_TEXT)}</w:t>", f"<w:t>{escape(paper_title)}</w:t>", 1)
+    if _TEMPLATE_TITLE_TEXT in document_xml:
+        return document_xml.replace(f"<w:t>{escape(_TEMPLATE_TITLE_TEXT)}</w:t>", f"<w:t>{escape(paper_title)}</w:t>", 1)
+    return _replace_chinese_template_title(document_xml, paper_title)
+
+
+def _replace_chinese_template_title(document_xml: str, paper_title: str) -> str:
+    pattern = re.compile(r"<w:p[ >][^>]*>(.*)</w:p>", re.DOTALL)
+    for match in pattern.finditer(document_xml):
+        content = match.group(1)
+        if "学年第" not in content or "学期" not in content or "考试" not in content:
+            continue
+        title_runs_pattern = re.compile(
+            r"<w:r[^>]*><w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>.*?</w:r>"
+        )
+        title_runs = title_runs_pattern.findall(content)
+        if not title_runs:
+            continue
+        new_run = (
+            "<w:r>"
+            "<w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>"
+            f"<w:t>{escape(paper_title)}</w:t>"
+            "</w:r>"
+        )
+        new_content = content.replace(title_runs[0], new_run)
+        for run in title_runs[1:]:
+            new_content = new_content.replace(run, "", 1)
+        new_paragraph = f"{match.group(0)[:match.group(0).find('>') + 1]}{new_content}</w:p>"
+        return document_xml[:match.start()] + new_paragraph + document_xml[match.end():]
+    return document_xml
 
 
 def _ensure_document_namespaces(document_xml: str) -> str:
