@@ -282,29 +282,42 @@ def _replace_template_title(document_xml: str, paper_title: str) -> str:
 
 
 def _replace_chinese_template_title(document_xml: str, paper_title: str) -> str:
-    pattern = re.compile(r"<w:p[ >][^>]*>(.*)</w:p>", re.DOTALL)
-    for match in pattern.finditer(document_xml):
-        content = match.group(1)
-        if "学年第" not in content or "学期" not in content or "考试" not in content:
-            continue
-        title_runs_pattern = re.compile(
-            r"<w:r[^>]*><w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>.*?</w:r>"
-        )
-        title_runs = title_runs_pattern.findall(content)
-        if not title_runs:
-            continue
-        new_run = (
-            "<w:r>"
-            "<w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>"
-            f"<w:t>{escape(paper_title)}</w:t>"
-            "</w:r>"
-        )
-        new_content = content.replace(title_runs[0], new_run)
-        for run in title_runs[1:]:
-            new_content = new_content.replace(run, "", 1)
-        new_paragraph = f"{match.group(0)[:match.group(0).find('>') + 1]}{new_content}</w:p>"
-        return document_xml[:match.start()] + new_paragraph + document_xml[match.end():]
-    return document_xml
+    marker = "学年第"
+    marker_pos = document_xml.find(marker)
+    if marker_pos == -1:
+        return document_xml
+    para_start = document_xml.rfind("<w:p", 0, marker_pos)
+    if para_start == -1:
+        return document_xml
+    pict_end_pos = document_xml.find("</w:pict>", para_start)
+    if pict_end_pos == -1:
+        return document_xml
+    search_start = pict_end_pos + len("</w:pict>")
+    para_end_pos = document_xml.find("</w:p>", search_start)
+    if para_end_pos == -1:
+        return document_xml
+    para_end_pos += len("</w:p>")
+    para_xml = document_xml[para_start:para_end_pos]
+    gt_pos = para_xml.find(">")
+    para_opening = para_xml[:gt_pos + 1]
+    para_content = para_xml[gt_pos + 1:-len("</w:p>")]
+    title_runs_pattern = re.compile(
+        r"<w:r[^>]*><w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>.*?</w:r>"
+    )
+    title_runs = title_runs_pattern.findall(para_content)
+    if not title_runs:
+        return document_xml
+    new_run = (
+        "<w:r>"
+        "<w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>"
+        f"<w:t>{escape(paper_title)}</w:t>"
+        "</w:r>"
+    )
+    new_content = para_content.replace(title_runs[0], new_run)
+    for run in title_runs[1:]:
+        new_content = new_content.replace(run, "", 1)
+    new_paragraph = f"{para_opening}{new_content}</w:p>"
+    return document_xml[:para_start] + new_paragraph + document_xml[para_end_pos:]
 
 
 def _ensure_document_namespaces(document_xml: str) -> str:
