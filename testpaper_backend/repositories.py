@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from testpaper_backend.db import PaperQuestionRow, PaperRow, QuestionRow, SessionLocal
@@ -360,7 +361,14 @@ class PaperStore(StoreMixin):
                         continue
                     setattr(row, key, value)
                 row.questions = question_rows
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
+                )
 
     def create(self, paper: PaperEntity) -> PaperEntity:
         with SessionLocal() as session:
@@ -378,7 +386,14 @@ class PaperStore(StoreMixin):
             row = PaperRow(**row_kwargs)
             row.questions = question_rows
             session.add(row)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
+                )
             session.refresh(row)
             return paper_row_to_entity(row)
 

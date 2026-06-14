@@ -18,7 +18,14 @@ end
 return current
 """
 
-_incr_and_expire = get_redis().register_script(_ATOMIC_INCR_WITH_EXPIRE)
+_incr_and_expire = None
+
+
+def _load_incr_script():
+    global _incr_and_expire
+    if _incr_and_expire is None:
+        _incr_and_expire = get_redis().register_script(_ATOMIC_INCR_WITH_EXPIRE)
+    return _incr_and_expire
 
 
 def get_client_ip(request: Request) -> str:
@@ -35,7 +42,7 @@ def check_rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
     redis_key = f"{RATE_LIMIT_KEY_PREFIX}{key}"
     try:
         client = get_redis()
-        current = int(_incr_and_expire(keys=[redis_key], args=[window_seconds], client=client))
+        current = int(_load_incr_script()(keys=[redis_key], args=[window_seconds], client=client))
         if current > max_attempts:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

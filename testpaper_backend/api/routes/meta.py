@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections import Counter
 
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select
@@ -65,9 +64,12 @@ async def list_tags(request: Request, current_user: QuestionsReadDep):
         pass
 
     with SessionLocal() as session:
-        tag_lists = session.scalars(select(QuestionRow.tags)).all()
-    counter = Counter(str(tag) for tags in tag_lists for tag in (tags or []) if tag is not None)
-    data = sorted(counter.keys())
+        tags = session.scalars(
+            select(func.jsonb_array_elements_text(QuestionRow.tags).label("value"))
+            .distinct()
+            .order_by("value")
+        ).all()
+    data = list(tags)
     try:
         client = get_redis()
         client.setex(CACHE_KEY_TAGS, CACHE_TTL, json.dumps(data))

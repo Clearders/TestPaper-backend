@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from testpaper_backend.api.dependencies import QuestionsWriteDep
+from testpaper_backend.api.dependencies import QuestionsWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.schemas import Envelope, ImageUploadPayload, ImageUploadResponse
 from testpaper_backend.services.images import store_uploaded_png
@@ -15,5 +15,6 @@ async def upload_image(
     request: Request,
     payload: ImageUploadPayload,
     current_user: QuestionsWriteDep,
+    _: RateLimitWriteDep,
 ):
     return envelope(store_uploaded_png(payload).model_dump(mode="json"), request)

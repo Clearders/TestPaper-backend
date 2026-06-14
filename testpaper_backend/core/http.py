@@ -42,7 +42,8 @@ def register_security_headers(app: FastAPI) -> None:
             "base-uri 'self'; "
             "form-action 'self'"
         )
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        if is_production():
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 

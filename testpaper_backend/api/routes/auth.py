@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
 
-from testpaper_backend.api.dependencies import CurrentUserDep, RateLimitLoginDep, RateLimitRegisterDep
+from testpaper_backend.api.dependencies import CurrentUserDep, RateLimitLoginDep, RateLimitRegisterDep, RateLimitWriteDep
 from testpaper_backend.core.csrf import clear_csrf_cookie, generate_csrf_token, set_csrf_cookie
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
@@ -123,9 +122,11 @@ async def logout(request: Request):
 
 
 @router.patch("/profile", response_model=Envelope[UserEntity])
-async def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep):
+async def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
-        user_row = cast(UserRow, session.get(UserRow, current_user.id))
+        user_row = session.get(UserRow, current_user.id)
+        if user_row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
 
         if payload.username is not None and payload.username != user_row.username:
             if user_row.last_username_changed_at is not None:
@@ -156,9 +157,11 @@ async def update_profile(request: Request, payload: ProfileUpdate, current_user:
 
 
 @router.put("/password")
-async def change_password(payload: PasswordChange, current_user: CurrentUserDep):
+async def change_password(payload: PasswordChange, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
-        user_row = cast(UserRow, session.get(UserRow, current_user.id))
+        user_row = session.get(UserRow, current_user.id)
+        if user_row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
         valid, _ = verify_password(payload.currentPassword, user_row.password_hash)
         if not valid:
             raise HTTPException(
@@ -172,10 +175,12 @@ async def change_password(payload: PasswordChange, current_user: CurrentUserDep)
 
 
 @router.post("/avatar", response_model=Envelope[ImageUploadResponse])
-async def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep):
+async def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep, _: RateLimitWriteDep):
     avatar = store_avatar(payload, current_user.publicId)
     with SessionLocal() as session:
-        user_row = cast(UserRow, session.get(UserRow, current_user.id))
+        user_row = session.get(UserRow, current_user.id)
+        if user_row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
         user_row.avatar_url = avatar.url
         user_row.updated_at = now_utc()
         session.commit()
@@ -183,12 +188,14 @@ async def upload_avatar(request: Request, payload: ImageUploadPayload, current_u
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account(request: Request, current_user: CurrentUserDep):
+async def delete_account(request: Request, current_user: CurrentUserDep, _: RateLimitWriteDep):
     with SessionLocal() as session:
         session.execute(
             delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)
         )
-        user_row = cast(UserRow, session.get(UserRow, current_user.id))
+        user_row = session.get(UserRow, current_user.id)
+        if user_row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
         user_row.is_active = False
         user_row.updated_at = now_utc()
         session.commit()

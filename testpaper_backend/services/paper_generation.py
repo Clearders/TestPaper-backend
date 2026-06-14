@@ -251,9 +251,18 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
     algorithm = GeneticAlgorithmOptions()
     rng = random.Random(algorithm.randomSeed)
     type_targets: dict[QuestionType, int] = {}
+    type_adjustments: list[dict[str, Any]] = []
     for t in payload.questionTypes:
         available = sum(1 for q in candidates if q.type == t.questionType)
-        type_targets[t.questionType] = min(t.count, available)
+        target = min(t.count, available)
+        type_targets[t.questionType] = target
+        if target < t.count:
+            type_adjustments.append({
+                "type": t.questionType.value,
+                "requested": t.count,
+                "available": available,
+                "adjusted": target,
+            })
     question_count = sum(type_targets.values())
     if len(candidates) < question_count:
         raise HTTPException(
@@ -291,6 +300,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
                 "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
                 "typeTargets": {key.value: value for key, value in type_targets.items()},
                 "typeActual": dict(Counter(question.type.value for question in selected_questions)),
+                "typeAdjustments": type_adjustments,
                 "generationsRun": 0,
                 "requiredTags": list(required_tags),
                 "preferredTags": list(optional_tags),
@@ -360,6 +370,7 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
         "typeTargets": {key.value: value for key, value in type_targets.items()},
         "typeActual": dict(Counter(question.type.value for question in selected_questions)),
+        "typeAdjustments": type_adjustments,
         "generationsRun": generations_run,
         "requiredTags": list(required_tags),
         "preferredTags": list(optional_tags),

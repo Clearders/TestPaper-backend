@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from testpaper_backend.schemas import UserEntity, UserRole
 from testpaper_backend.security import (
     has_permission,
@@ -40,8 +42,8 @@ def test_has_permission():
             "users:manage",
         ]),
         isActive=True,
-        createdAt=None,
-        updatedAt=None,
+        createdAt=datetime(2026, 5, 19, tzinfo=UTC),
+        updatedAt=datetime(2026, 5, 19, tzinfo=UTC),
     )
     assert has_permission(user, "questions:read") is True
     assert has_permission(user, "users:manage") is True

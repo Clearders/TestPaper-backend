@@ -58,8 +58,8 @@ async def create_paper(request: Request, payload: PaperCreate, current_user: Pap
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
 async def generate_paper(request: Request, payload: PaperGenerateRequest, current_user: PapersWriteDep, _: RateLimitWriteDep):
-    owner_id = current_user.id if payload.ownQuestionsOnly else None
-    generated = generate_paper_with_genetic_algorithm(payload, owner_id=owner_id)
+    candidate_owner = current_user.id if payload.ownQuestionsOnly else None
+    generated = generate_paper_with_genetic_algorithm(payload, owner_id=candidate_owner)
     if not generated["paperQuestions"]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -143,7 +143,8 @@ async def add_paper_questions(
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper.id] = paper
-    await realtime.broadcast("paper.questions.added", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
+    await realtime.broadcast("paper.questions.added", payload)
     return envelope(paper_with_questions(paper), request)
 
 
@@ -168,7 +169,7 @@ async def remove_paper_question(
     PAPERS[paper.id] = paper
     await realtime.broadcast(
         "paper.question.removed",
-        {"paper": paper.model_dump(mode="json"), "questionId": question_public_id, "actorId": current_user.id},
+        {"paper": paper.model_dump(mode="json"), "questionId": question_public_id, "actorId": current_user.id, "paperId": paper.publicId},
     )
     return envelope(paper_with_questions(paper), request)
 
@@ -202,7 +203,8 @@ async def reorder_paper_questions(
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
     PAPERS[paper.id] = paper
-    await realtime.broadcast("paper.questions.reordered", {"paper": paper.model_dump(mode="json"), "actorId": current_user.id})
+    payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
+    await realtime.broadcast("paper.questions.reordered", payload)
     return envelope(paper_with_questions(paper), request)
 
 

@@ -24,7 +24,7 @@ def create_paper_from_payload(payload: PaperCreate, owner_id: int | None = None)
         totalMarks=payload.totalMarks,
         questions=[QuestionRef(**item.model_dump()) for item in sorted(payload.questions, key=lambda item: item.orderNo)],
         status=PaperStatus.draft,
-        ownerId=payload.ownerId or owner_id or None,
+        ownerId=owner_id,
         createdAt=now_utc(),
         updatedAt=now_utc(),
     )

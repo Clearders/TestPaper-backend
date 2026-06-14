@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from testpaper_backend.api.dependencies import QuestionsDeleteDep, QuestionsReadDep, QuestionsWriteDep, RateLimitWriteDep
 from testpaper_backend.api.routes.meta import invalidate_meta_cache
 from testpaper_backend.core.responses import envelope
+from testpaper_backend.db import SessionLocal
 from testpaper_backend.repositories import QUESTIONS
 from testpaper_backend.schemas import (
     Difficulty,
@@ -154,15 +155,13 @@ async def update_question(
 ):
     question = get_question_or_404(question_public_id)
     ensure_question_owner_access(question, current_user)
-    owner_id_set = "ownerId" in payload.model_fields_set
-    if not owner_id_set:
-        payload.ownerId = current_user.id
-    elif payload.ownerId is not None:
-        payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
-    else:
-        payload.ownerId = normalize_question_owner(None, current_user)
-    updated = apply_question_update(question, payload, current_user.id)
+    payload.ownerId = current_user.id
+    updated, revision = apply_question_update(question, payload, current_user.id)
     QUESTIONS[question.id] = updated
+    if revision is not None:
+        with SessionLocal() as session:
+            session.add(revision)
+            session.commit()
     await realtime.broadcast("question.updated", {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id})
     invalidate_meta_cache()
     logger.info("Question updated: %s", question_public_id)

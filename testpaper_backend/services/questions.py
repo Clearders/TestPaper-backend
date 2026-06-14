@@ -58,7 +58,9 @@ def normalize_question_payload(payload: QuestionBase, question_id: int, created_
     )
 
 
-def apply_question_update(question: QuestionEntity, patch: QuestionUpdate, current_user_id: int) -> QuestionEntity:
+def apply_question_update(
+    question: QuestionEntity, patch: QuestionUpdate, current_user_id: int
+) -> tuple[QuestionEntity, QuestionRevisionRow | None]:
     data = question.model_dump()
     patch_data = patch.model_dump(exclude_unset=True)
     data.update(patch_data)
@@ -128,11 +130,8 @@ def apply_question_update(question: QuestionEntity, patch: QuestionUpdate, curre
             change_summary=change_summary,
             created_at=now_utc(),
         )
-        with SessionLocal() as session:
-            session.add(revision)
-            session.commit()
-
-    return updated
+        return updated, revision
+    return updated, None
 
 
 def question_to_dict(question: QuestionEntity, include_answer: bool = True) -> dict[str, Any]:

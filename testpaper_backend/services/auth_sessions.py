@@ -41,7 +41,7 @@ def set_auth_cookie(response: Response, token: str, expires_at: datetime) -> Non
         key=get_auth_cookie_name(),
         value=token,
         max_age=max_age,
-        expires=max_age,
+        expires=expires_at,
         path="/",
         domain=get_auth_cookie_domain(),
         secure=get_auth_cookie_secure(),

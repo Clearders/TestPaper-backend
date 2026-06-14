@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class UserRole(StrEnum):
@@ -47,6 +47,14 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
 }
 
 
+def _validate_password_complexity(v: str) -> str:
+    if not any(c.isalpha() for c in v):
+        raise ValueError("Password must contain at least one letter")
+    if not any(c.isdigit() for c in v):
+        raise ValueError("Password must contain at least one digit")
+    return v
+
+
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=1)
@@ -57,7 +65,12 @@ class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=3, max_length=64)
     displayName: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
     @model_validator(mode="after")
     def normalize_register_request(self):
@@ -88,9 +101,14 @@ class UserCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=3, max_length=64)
     displayName: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
+    password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.viewer
     isActive: bool = True
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
     @model_validator(mode="after")
     def normalize_user_create(self):
@@ -102,9 +120,16 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     displayName: str | None = Field(default=None, min_length=1, max_length=120)
-    password: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     role: UserRole | None = None
     isActive: bool | None = None
+
+    @field_validator("password")
+    @classmethod
+    def check_password_complexity(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _validate_password_complexity(v)
+        return v
 
     @model_validator(mode="after")
     def normalize_user_update(self):
@@ -136,7 +161,12 @@ class ProfileUpdate(BaseModel):
 class PasswordChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
     currentPassword: str = Field(min_length=1)
-    newPassword: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
+    newPassword: str = Field(min_length=8, max_length=128)
+
+    @field_validator("newPassword")
+    @classmethod
+    def check_password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class ImageUploadPayload(BaseModel):

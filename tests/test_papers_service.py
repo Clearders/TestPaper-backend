@@ -10,8 +10,9 @@ from testpaper_backend.services import papers
 def _question(question_id: int, question_type: QuestionType, text: str) -> QuestionEntity:
     return QuestionEntity(
         id=question_id,
+        publicId=f"q-{question_id}",
         type=question_type,
-        subject="Math",
+        subjects=["Math"],
         difficulty=Difficulty.easy,
         tags=[],
         text=text,
@@ -32,20 +33,24 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
         4: _question(4, QuestionType.single_choice, "choice second"),
         5: _question(5, QuestionType.blank, "blank"),
     }
-    monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(get=questions.get))
+    monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(
+        get=questions.get,
+        get_by_public_id=lambda pid: questions.get(int(pid[2:])),
+    ))
 
     paper = PaperEntity(
         id=1,
+        publicId="p-1",
         title="Grouped Export",
         subject="Math",
         duration=60,
         totalMarks=100,
         questions=[
-            QuestionRef(questionId=1, orderNo=1, marks=10),
-            QuestionRef(questionId=2, orderNo=2, marks=5),
-            QuestionRef(questionId=3, orderNo=3, marks=8),
-            QuestionRef(questionId=4, orderNo=4, marks=6),
-            QuestionRef(questionId=5, orderNo=5, marks=4),
+            QuestionRef(questionPublicId="q-1", orderNo=1, marks=10),
+            QuestionRef(questionPublicId="q-2", orderNo=2, marks=5),
+            QuestionRef(questionPublicId="q-3", orderNo=3, marks=8),
+            QuestionRef(questionPublicId="q-4", orderNo=4, marks=6),
+            QuestionRef(questionPublicId="q-5", orderNo=5, marks=4),
         ],
         createdAt=datetime(2026, 5, 19, tzinfo=UTC),
         updatedAt=datetime(2026, 5, 19, tzinfo=UTC),
