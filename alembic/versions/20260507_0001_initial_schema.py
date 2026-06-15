@@ -320,7 +320,6 @@ def downgrade() -> None:
     op.drop_table("auth_tokens")
     op.drop_index(op.f("ix_papers_subject"), table_name="papers")
     op.drop_table("papers")
-    op.drop_index(op.f("ix_questions_subject"), table_name="questions")
     op.drop_index(op.f("ix_questions_difficulty"), table_name="questions")
     op.drop_table("questions")
     op.drop_index(op.f("ix_users_username"), table_name="users")

@@ -4,11 +4,14 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
 from testpaper_backend.api.routes.questions import normalize_update_owner
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts
+from testpaper_backend.core.csrf import CSRFMiddleware
 from testpaper_backend.core.factory import create_app
 from testpaper_backend.core.lifespan import lifespan
 from testpaper_backend.schemas import (
@@ -140,6 +143,39 @@ def test_production_security_configuration_is_fail_closed(monkeypatch) -> None:
     production_app = create_app(lifespan=lifespan)
     assert production_app.docs_url is None
     assert production_app.openapi_url is None
+
+
+def test_bearer_requests_do_not_require_cookie_csrf() -> None:
+    csrf_app = FastAPI()
+    csrf_app.add_middleware(CSRFMiddleware)
+
+    @csrf_app.post("/write")
+    def write_endpoint():
+        return {"ok": True}
+
+    client = TestClient(csrf_app)
+    cookie_response = client.post("/write")
+    assert cookie_response.status_code == 403
+    assert cookie_response.json()["error"]["code"] == "CSRF_MISSING"
+
+    bearer_response = client.post(
+        "/write",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+    assert bearer_response.status_code == 200
+    assert bearer_response.json() == {"ok": True}
+
+
+def test_hsts_requires_secure_production_cookie(monkeypatch) -> None:
+    from testpaper_backend.application import app
+
+    client = TestClient(app)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTH_COOKIE_SECURE", "false")
+    assert "strict-transport-security" not in client.get("/").headers
+
+    monkeypatch.setenv("AUTH_COOKIE_SECURE", "true")
+    assert client.get("/").headers["strict-transport-security"].startswith("max-age=")
 
 
 def test_admin_update_preserves_owner_unless_explicit(monkeypatch) -> None:

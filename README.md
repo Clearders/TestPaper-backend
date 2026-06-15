@@ -182,6 +182,7 @@ All application routes are under `/api/v1`. For the full API specification, see 
 - WebSocket accepts token via Cookie or `Authorization` header; tokens are never accepted in URLs
 - CSRF protection via `testpapers_csrf` Cookie + `X-CSRF-Token` header for non-safe methods
 - `/auth/login` and `/auth/register` exempt from CSRF checks
+- Requests authenticated with an explicit `Authorization: Bearer` header do not require Cookie CSRF protection
 - Session tokens expire after 12 hours (configurable via `SESSION_TTL_HOURS`)
 - Expired tokens trigger `TOKEN_EXPIRED` (401); clients call `POST /api/v1/auth/refresh` to rotate
 - Refresh rotates the token (old token deleted, new token issued)
@@ -289,6 +290,12 @@ Run all migrations:
 
 ```bash
 alembic upgrade head
+```
+
+Validate the complete upgrade/downgrade structure without a running database:
+
+```bash
+python scripts/simulate_migrations.py
 ```
 
 Current migration history (14 versions):

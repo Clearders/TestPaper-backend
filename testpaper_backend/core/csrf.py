@@ -54,6 +54,11 @@ def _is_csrf_exempt(path: str) -> bool:
     return normalized.endswith(CSRF_EXEMPT_PATH_SUFFIXES)
 
 
+def _uses_bearer_auth(request: Request) -> bool:
+    scheme, separator, token = request.headers.get("authorization", "").partition(" ")
+    return separator == " " and scheme.lower() == "bearer" and bool(token.strip())
+
+
 class CSRFMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -69,7 +74,7 @@ class CSRFMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if _is_csrf_exempt(request.url.path):
+        if _is_csrf_exempt(request.url.path) or _uses_bearer_auth(request):
             await self.app(scope, receive, send)
             return
 

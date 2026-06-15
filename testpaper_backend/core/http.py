@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from testpaper_backend.config import is_production
+from testpaper_backend.config import get_auth_cookie_secure, is_production
 from testpaper_backend.core.logging_config import set_request_id
 from testpaper_backend.core.responses import error_envelope
 
@@ -42,7 +42,7 @@ def register_security_headers(app: FastAPI) -> None:
             "base-uri 'self'; "
             "form-action 'self'"
         )
-        if is_production():
+        if is_production() and get_auth_cookie_secure():
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
