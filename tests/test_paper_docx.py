@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 import zipfile
+import xml.etree.ElementTree as ET
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -68,6 +69,41 @@ def test_essay_blank_space_defaults_when_missing() -> None:
     document_xml = _document_xml(docx)
 
     assert 'w:line="2520"' in document_xml
+
+
+def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
+    png = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    docx = build_paper_docx(
+        _paper(),
+        [
+            {
+                "type": "short_answer",
+                "text": "Inspect the image.",
+                "marks": 10,
+                "images": [{"url": png, "caption": "Figure 1"}],
+            }
+        ],
+        include_answer=False,
+    )
+
+    document_xml = _document_xml(docx)
+
+    root = ET.fromstring(document_xml)
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    body = root.find("w:body", namespace)
+    assert body is not None
+    body_children = list(body)
+    assert body_children[-1].tag == f"{{{namespace['w']}}}sectPr"
+    assert body_children[-1].find("w:pgSz", namespace).get(f"{{{namespace['w']}}}orient") is None
+    assert body_children[-1].find("w:cols", namespace) is None
+    direct_paragraph_text = ["".join(paragraph.itertext()) for paragraph in body.findall("w:p", namespace)]
+    assert any(text.endswith("Essay Export") for text in direct_paragraph_text)
+    assert any("Inspect the image." in text for text in direct_paragraph_text)
+    assert 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' in document_xml
+    assert 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"' in document_xml
 
 
 def test_built_distributions_include_chinese_template_and_packaged_export(tmp_path: Path) -> None:

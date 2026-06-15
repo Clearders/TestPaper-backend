@@ -39,6 +39,12 @@ _MAX_ESSAY_BLANK_LINE_HEIGHT = 48
 _LATEX_SEGMENT_RE = re.compile(r"(\$\$(?P<block>.+?)\$\$|\$(?P<inline>.+?)\$)", re.DOTALL)
 _TEMPLATE_TITLE_TEXT = "2020-2021 Academic Year First Semester Final Exam Paper"
 _PNG_CONTENT_TYPE = '<Default Extension="png" ContentType="image/png"/>'
+_QUESTION_SECTION_XML = (
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+    'w:header="720" w:footer="720" w:gutter="0"/>'
+    "</w:sectPr>"
+)
 _MATH_SYMBOLS = {
     "alpha": "\u03b1",
     "beta": "\u03b2",
@@ -221,9 +227,7 @@ def _build_standalone_docx(
         f"<w:document {_DOCX_NS}>"
         "<w:body>"
         f"{document_body_xml}"
-        '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
-        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
-        "</w:sectPr>"
+        f"{_QUESTION_SECTION_XML}"
         "</w:body>"
         "</w:document>"
     )
@@ -302,7 +306,8 @@ def _replace_chinese_template_title(document_xml: str, paper_title: str) -> str:
     para_opening = para_xml[:gt_pos + 1]
     para_content = para_xml[gt_pos + 1:-len("</w:p>")]
     title_runs_pattern = re.compile(
-        r"<w:r[^>]*><w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>.*?</w:r>"
+        r'<w:r\b[^>]*>(?:(?!</w:r>).)*?<w:sz w:val="36"/>(?:(?!</w:r>).)*?</w:r>',
+        re.DOTALL,
     )
     title_runs = title_runs_pattern.findall(para_content)
     if not title_runs:
@@ -330,7 +335,11 @@ def _ensure_document_namespaces(document_xml: str) -> str:
         return document_xml
 
     document_tag = document_tag_match.group(0)
-    additions = [attribute for prefix, attribute in namespace_attrs.items() if prefix not in document_tag]
+    additions = [
+        attribute
+        for prefix, attribute in namespace_attrs.items()
+        if re.search(rf"\\s{re.escape(prefix)}\\s*=", document_tag) is None
+    ]
     if not additions:
         return document_xml
 
@@ -339,10 +348,28 @@ def _ensure_document_namespaces(document_xml: str) -> str:
 
 
 def _insert_before_final_section(document_xml: str, document_body_xml: str) -> str:
-    final_section_match = re.search(r"<w:sectPr\b.*?</w:sectPr>\s*</w:body>", document_xml, re.DOTALL)
-    if final_section_match is not None:
-        return document_xml[:final_section_match.start()] + document_body_xml + document_xml[final_section_match.start():]
-    return document_xml.replace("</w:body>", f"{document_body_xml}</w:body>", 1)
+    body_end = document_xml.rfind("</w:body>")
+    if body_end == -1:
+        return document_xml
+
+    final_section_start = document_xml.rfind("<w:sectPr", 0, body_end)
+    if final_section_start == -1:
+        return document_xml[:body_end] + document_body_xml + _QUESTION_SECTION_XML + document_xml[body_end:]
+
+    final_section_end = document_xml.find("</w:sectPr>", final_section_start, body_end)
+    if final_section_end == -1:
+        return document_xml[:body_end] + document_body_xml + document_xml[body_end:]
+    final_section_end += len("</w:sectPr>")
+
+    cover_section = document_xml[final_section_start:final_section_end]
+    section_break = f"<w:p><w:pPr>{cover_section}</w:pPr></w:p>"
+    return (
+        document_xml[:final_section_start]
+        + section_break
+        + document_body_xml
+        + _QUESTION_SECTION_XML
+        + document_xml[final_section_end:]
+    )
 
 
 def _append_document_relationships(relationships_xml: str, image_relationships: list[str]) -> str:
