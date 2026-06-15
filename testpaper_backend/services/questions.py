@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import ARRAY, String, func, or_, select, type_coerce
 from sqlalchemy import cast as sql_cast
 
 from testpaper_backend.db import (
@@ -214,7 +214,7 @@ def query_questions_page(
     if subjects:
         subject_list = [s.strip() for s in subjects.split(",") if s.strip()]
         if subject_list:
-            statement = statement.where(QuestionRow.subjects.op("?|")(subject_list))
+            statement = statement.where(QuestionRow.subjects.op("?|")(type_coerce(subject_list, ARRAY(String))))
     if difficulty:
         statement = statement.where(QuestionRow.difficulty == difficulty.value)
     if question_type:
@@ -236,7 +236,7 @@ def query_questions_page(
             search_conditions.append(func.lower(sql_cast(QuestionRow.answer, String)).like(keyword_pattern))
         statement = statement.where(or_(*search_conditions))
     if tag_filters:
-        statement = statement.where(QuestionRow.tags.op("?|")(tag_filters))
+        statement = statement.where(QuestionRow.tags.op("?|")(type_coerce(tag_filters, ARRAY(String))))
 
     sort_column = QUESTION_SORT_COLUMNS.get(sort_by or "createdAt", QUESTION_SORT_COLUMNS["createdAt"])
     order_by = sort_column.desc() if sort_order == SortOrder.desc else sort_column.asc()

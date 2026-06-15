@@ -7,7 +7,7 @@ from itertools import chain
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import ARRAY, String, select, type_coerce
 
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import normalize_question_type, question_row_to_entity
@@ -118,7 +118,7 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
         raise ValueError("At least one subject is required")
     selected_types = {t.questionType for t in payload.questionTypes}
     statement = select(QuestionRow).where(
-        QuestionRow.subjects.op('?|')(subjects),
+        QuestionRow.subjects.op('?|')(type_coerce(subjects, ARRAY(String))),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
