@@ -84,7 +84,13 @@ def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
                 "text": "Inspect the image.",
                 "marks": 10,
                 "images": [{"url": png, "caption": "Figure 1"}],
-            }
+            },
+            {
+                "type": "single_choice",
+                "text": "Choose the correct option.",
+                "marks": 5,
+                "options": ["A1", "B1"],
+            },
         ],
         include_answer=False,
     )
@@ -97,11 +103,27 @@ def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
     assert body is not None
     body_children = list(body)
     assert body_children[-1].tag == f"{{{namespace['w']}}}sectPr"
-    assert body_children[-1].find("w:pgSz", namespace).get(f"{{{namespace['w']}}}orient") is None
-    assert body_children[-1].find("w:cols", namespace) is None
+    assert body_children[-1].find("w:pgSz", namespace).get(f"{{{namespace['w']}}}orient") == "landscape"
+    assert body_children[-1].find("w:cols", namespace) is not None
     direct_paragraph_text = ["".join(paragraph.itertext()) for paragraph in body.findall("w:p", namespace)]
     assert any(text.endswith("Essay Export") for text in direct_paragraph_text)
-    assert any("Inspect the image." in text for text in direct_paragraph_text)
+    assert not any("Inspect the image." in text for text in direct_paragraph_text)
+
+    table = body.find("w:tbl", namespace)
+    assert table is not None
+    first_row = table.find("w:tr", namespace)
+    assert first_row is not None
+    cells = first_row.findall("w:tc", namespace)
+    assert len(cells) == 2
+    left_text = "".join(cells[0].itertext())
+    right_text = "".join(cells[1].itertext())
+    assert "科目：Writing" in left_text
+    assert "Choose the correct option." in left_text
+    assert "1. Choose the correct option." in left_text
+    assert "Inspect the image." not in left_text
+    assert "Inspect the image." in right_text
+    assert "2. Inspect the image." in right_text
+    assert first_row.find("w:trPr/w:cantSplit", namespace) is None
     assert 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"' in document_xml
     assert 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"' in document_xml
 

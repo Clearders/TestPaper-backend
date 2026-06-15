@@ -39,6 +39,23 @@ _MAX_ESSAY_BLANK_LINE_HEIGHT = 48
 _LATEX_SEGMENT_RE = re.compile(r"(\$\$(?P<block>.+?)\$\$|\$(?P<inline>.+?)\$)", re.DOTALL)
 _TEMPLATE_TITLE_TEXT = "2020-2021 Academic Year First Semester Final Exam Paper"
 _PNG_CONTENT_TYPE = '<Default Extension="png" ContentType="image/png"/>'
+_TEMPLATE_TYPE_ORDER = (
+    "single_choice",
+    "multiple_choice",
+    "true_false",
+    "blank",
+    "short_answer",
+    "essay",
+)
+_TEMPLATE_LEFT_TYPES = frozenset(_TEMPLATE_TYPE_ORDER[:4])
+_TEMPLATE_TYPE_LABELS = {
+    "single_choice": "单项选择题",
+    "multiple_choice": "多项选择题",
+    "true_false": "判断题",
+    "blank": "填空题",
+    "short_answer": "简答题",
+    "essay": "计算与论述题",
+}
 _QUESTION_SECTION_XML = (
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
     '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
@@ -145,13 +162,25 @@ def build_paper_docx(
     use_template = template.is_file()
     images: list[tuple[str, bytes]] = []
     image_relationships: list[str] = []
-    paragraphs: list[str] = []
-    if not use_template:
-        paragraphs.extend(
-            [
-                _paragraph(paper.title, bold=True, size=32, align="center"),
-            ]
+    if use_template:
+        left_cell_xml, right_cell_xml = _template_question_cells(
+            paper,
+            questions,
+            include_answer=include_answer,
+            images=images,
+            image_relationships=image_relationships,
         )
+        return _build_docx_from_template(
+            template,
+            paper.title,
+            left_cell_xml,
+            right_cell_xml,
+            images,
+            image_relationships,
+        )
+
+    paragraphs: list[str] = []
+    paragraphs.append(_paragraph(paper.title, bold=True, size=32, align="center"))
     paragraphs.extend(
         [
             _paragraph(
@@ -172,8 +201,6 @@ def build_paper_docx(
         )
     )
     document_body_xml = "".join(paragraphs)
-    if use_template:
-        return _build_docx_from_template(template, paper.title, document_body_xml, images, image_relationships)
     return _build_standalone_docx(document_body_xml, images, image_relationships)
 
 
@@ -184,10 +211,29 @@ def _question_paragraphs(
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
 ) -> list[str]:
+    return _question_paragraphs_for_items(
+        list(enumerate(questions, start=1)),
+        include_answer=include_answer,
+        images=images,
+        image_relationships=image_relationships,
+        localized=False,
+    )
+
+
+def _question_paragraphs_for_items(
+    numbered_questions: list[tuple[int, dict[str, Any]]],
+    *,
+    include_answer: bool,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+    localized: bool,
+) -> list[str]:
     paragraphs: list[str] = []
 
-    for index, question in enumerate(questions, start=1):
-        marks_text = f" ({question['marks']} marks)" if question.get("marks") else ""
+    for index, question in numbered_questions:
+        marks_text = ""
+        if question.get("marks"):
+            marks_text = f"（{question['marks']}分）" if localized else f" ({question['marks']} marks)"
         paragraphs.append(_paragraph_with_latex(f"{index}. {question.get('text', '')}{marks_text}", bold=True, size=23))
 
         options = question.get("options") or []
@@ -210,11 +256,85 @@ def _question_paragraphs(
             ans = question.get('answer', '')
             if isinstance(ans, list):
                 ans = ', '.join(ans)
-            paragraphs.append(_paragraph_with_latex(f"Answer: {ans}", italic=True, size=21))
+            answer_label = "答案：" if localized else "Answer: "
+            paragraphs.append(_paragraph_with_latex(f"{answer_label}{ans}", italic=True, size=21))
 
         paragraphs.append(_paragraph(""))
 
     return paragraphs
+
+
+def _template_question_cells(
+    paper: PaperEntity,
+    questions: list[dict[str, Any]],
+    *,
+    include_answer: bool,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+) -> tuple[str, str]:
+    grouped: dict[str, list[dict[str, Any]]] = {qtype: [] for qtype in _TEMPLATE_TYPE_ORDER}
+    for question in questions:
+        question_type = question.get("type", "")
+        type_value = question_type.value if hasattr(question_type, "value") else str(question_type)
+        target_type = type_value if type_value in grouped else "short_answer"
+        grouped[target_type].append(question)
+
+    left_parts = [
+        _paragraph(
+            f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
+            bold=True,
+            size=22,
+        ),
+        _paragraph("答题说明：请将答案填写在相应位置，计算与论述题请写出必要步骤。", italic=True, size=20),
+    ]
+    right_parts: list[str] = []
+    section_number = 0
+    question_number = 1
+
+    for question_type in _TEMPLATE_TYPE_ORDER:
+        grouped_questions = grouped.get(question_type) or []
+        if not grouped_questions:
+            continue
+        items = list(enumerate(grouped_questions, start=question_number))
+        question_number += len(items)
+        section_number += 1
+        section_parts = left_parts if question_type in _TEMPLATE_LEFT_TYPES else right_parts
+        section_parts.append(
+            _paragraph(
+                _template_section_heading(section_number, question_type, items),
+                bold=True,
+                size=24,
+            )
+        )
+        section_parts.extend(
+            _question_paragraphs_for_items(
+                items,
+                include_answer=include_answer,
+                images=images,
+                image_relationships=image_relationships,
+                localized=True,
+            )
+        )
+
+    if len(left_parts) == 2:
+        left_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
+    if not right_parts:
+        right_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
+    return "".join(left_parts), "".join(right_parts)
+
+
+def _template_section_heading(
+    section_number: int,
+    question_type: str,
+    items: list[tuple[int, dict[str, Any]]],
+) -> str:
+    chinese_numbers = "一二三四五六七八九十"
+    number_text = chinese_numbers[section_number - 1] if section_number <= len(chinese_numbers) else str(section_number)
+    details = [f"共{len(items)}题"]
+    marks = [item.get("marks") for _, item in items]
+    if marks and all(isinstance(mark, int) and mark > 0 for mark in marks):
+        details.append(f"共{sum(marks)}分")
+    return f"{number_text}、{_TEMPLATE_TYPE_LABELS.get(question_type, '其他题')}（{'，'.join(details)}）"
 
 
 def _build_standalone_docx(
@@ -247,7 +367,8 @@ def _build_standalone_docx(
 def _build_docx_from_template(
     template_path: Path,
     paper_title: str,
-    document_body_xml: str,
+    left_cell_xml: str,
+    right_cell_xml: str,
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
 ) -> bytes:
@@ -256,7 +377,7 @@ def _build_docx_from_template(
         document_xml = template_archive.read("word/document.xml").decode("utf-8")
         document_xml = _replace_template_title(document_xml, paper_title)
         document_xml = _ensure_document_namespaces(document_xml)
-        document_xml = _insert_before_final_section(document_xml, document_body_xml)
+        document_xml = _populate_template_question_cells(document_xml, left_cell_xml, right_cell_xml)
 
         relationships_xml = template_archive.read("word/_rels/document.xml.rels").decode("utf-8")
         relationships_xml = _append_document_relationships(relationships_xml, image_relationships)
@@ -347,29 +468,31 @@ def _ensure_document_namespaces(document_xml: str) -> str:
     return document_xml[:document_tag_match.start()] + updated_tag + document_xml[document_tag_match.end():]
 
 
-def _insert_before_final_section(document_xml: str, document_body_xml: str) -> str:
-    body_end = document_xml.rfind("</w:body>")
-    if body_end == -1:
+def _populate_template_question_cells(document_xml: str, left_cell_xml: str, right_cell_xml: str) -> str:
+    table_start = document_xml.find("<w:tbl")
+    first_row_start = document_xml.find("<w:tr", table_start)
+    first_row_end = document_xml.find("</w:tr>", first_row_start)
+    if min(table_start, first_row_start, first_row_end) == -1:
+        return document_xml
+    first_row_end += len("</w:tr>")
+
+    row_xml = document_xml[first_row_start:first_row_end]
+    cell_matches = list(re.finditer(r"<w:tc\b[^>]*>.*?</w:tc>", row_xml, re.DOTALL))
+    if len(cell_matches) < 2:
         return document_xml
 
-    final_section_start = document_xml.rfind("<w:sectPr", 0, body_end)
-    if final_section_start == -1:
-        return document_xml[:body_end] + document_body_xml + _QUESTION_SECTION_XML + document_xml[body_end:]
+    replacements = (left_cell_xml, right_cell_xml)
+    for match, replacement in reversed(list(zip(cell_matches[:2], replacements))):
+        cell_xml = match.group(0)
+        properties_end = cell_xml.find("</w:tcPr>")
+        if properties_end == -1:
+            continue
+        properties_end += len("</w:tcPr>")
+        updated_cell = cell_xml[:properties_end] + replacement + "</w:tc>"
+        row_xml = row_xml[:match.start()] + updated_cell + row_xml[match.end():]
 
-    final_section_end = document_xml.find("</w:sectPr>", final_section_start, body_end)
-    if final_section_end == -1:
-        return document_xml[:body_end] + document_body_xml + document_xml[body_end:]
-    final_section_end += len("</w:sectPr>")
-
-    cover_section = document_xml[final_section_start:final_section_end]
-    section_break = f"<w:p><w:pPr>{cover_section}</w:pPr></w:p>"
-    return (
-        document_xml[:final_section_start]
-        + section_break
-        + document_body_xml
-        + _QUESTION_SECTION_XML
-        + document_xml[final_section_end:]
-    )
+    row_xml = row_xml.replace("<w:cantSplit/>", "", 1)
+    return document_xml[:first_row_start] + row_xml + document_xml[first_row_end:]
 
 
 def _append_document_relationships(relationships_xml: str, image_relationships: list[str]) -> str:
