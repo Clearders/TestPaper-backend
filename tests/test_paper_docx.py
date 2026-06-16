@@ -128,6 +128,79 @@ def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
     assert 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"' in document_xml
 
 
+def test_template_compresses_layout_for_many_questions() -> None:
+    questions = [
+        {
+            "type": "single_choice",
+            "text": f"Choose the expression for x + {index}.",
+            "marks": 2,
+            "options": [f"x + {index}", f"x - {index}", f"{index}x", f"x / {index}"],
+            "answer": "A",
+        }
+        for index in range(1, 17)
+    ]
+    questions.extend(
+        {
+            "type": "blank",
+            "text": f"Fill the blank {index}.",
+            "marks": 3,
+            "answer": "10",
+        }
+        for index in range(1, 5)
+    )
+
+    docx = build_paper_docx(_paper(), questions, include_answer=True)
+    document_xml = _document_xml(docx)
+
+    root = ET.fromstring(document_xml)
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    table = root.find("w:body/w:tbl", namespace)
+    assert table is not None
+    first_row = table.find("w:tr", namespace)
+    assert first_row is not None
+    assert first_row.find("w:trPr/w:trHeight", namespace) is None
+
+    cells = first_row.findall("w:tc", namespace)
+    assert len(cells) >= 2
+    left_paragraph_texts = ["".join(paragraph.itertext()) for paragraph in cells[0].findall("w:p", namespace)]
+    right_paragraph_texts = ["".join(paragraph.itertext()) for paragraph in cells[1].findall("w:p", namespace)]
+    assert any("Choose the expression for x + 1." in text for text in left_paragraph_texts)
+    assert any(
+        "A. x + 1" in text and "B. x - 1" in text and "C. 1x" in text and "D. x / 1" in text
+        for text in left_paragraph_texts
+    )
+    assert any("Choose the expression for x + 16." in text for text in right_paragraph_texts)
+    assert any("Fill the blank 4." in text for text in right_paragraph_texts)
+    assert sum(1 for text in left_paragraph_texts + right_paragraph_texts if "Choose the expression for x +" in text) == 16
+    assert len(left_paragraph_texts) < 80
+
+
+def test_template_repeats_original_table_for_overflow_pages() -> None:
+    questions = [
+        {
+            "type": "single_choice",
+            "text": f"Overflow choice {index}.",
+            "marks": 2,
+            "options": ["alpha", "beta", "gamma", "delta"],
+            "answer": "A",
+        }
+        for index in range(1, 45)
+    ]
+
+    docx = build_paper_docx(_paper(), questions, include_answer=True)
+    document_xml = _document_xml(docx)
+
+    root = ET.fromstring(document_xml)
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    tables = root.findall("w:body/w:tbl", namespace)
+    assert len(tables) >= 2
+
+    first_table_text = "".join(tables[0].itertext())
+    second_table_text = "".join(tables[1].itertext())
+    assert "Overflow choice 1." in first_table_text
+    assert "Overflow choice 44." in second_table_text
+
+
 def test_built_distributions_include_chinese_template_and_packaged_export(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     build_root = tmp_path / "project"

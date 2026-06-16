@@ -48,6 +48,16 @@ _TEMPLATE_TYPE_ORDER = (
     "essay",
 )
 _TEMPLATE_LEFT_TYPES = frozenset(_TEMPLATE_TYPE_ORDER[:4])
+_TEMPLATE_OBJECTIVE_TYPES = frozenset(("single_choice", "multiple_choice", "true_false"))
+_DENSITY_NORMAL = "normal"
+_DENSITY_COMPACT = "compact"
+_DENSITY_DENSE = "dense"
+_TEMPLATE_COMPACT_TOTAL_THRESHOLD = 14
+_TEMPLATE_DENSE_TOTAL_THRESHOLD = 24
+_TEMPLATE_COMPACT_OBJECTIVE_THRESHOLD = 8
+_TEMPLATE_DENSE_OBJECTIVE_THRESHOLD = 14
+_TEMPLATE_COMPACT_COLUMN_CAPACITY = 45.0
+_TEMPLATE_DENSE_COLUMN_CAPACITY = 42.0
 _TEMPLATE_TYPE_LABELS = {
     "single_choice": "单项选择题",
     "multiple_choice": "多项选择题",
@@ -163,7 +173,7 @@ def build_paper_docx(
     images: list[tuple[str, bytes]] = []
     image_relationships: list[str] = []
     if use_template:
-        left_cell_xml, right_cell_xml = _template_question_cells(
+        page_cells, compact_layout = _template_question_pages(
             paper,
             questions,
             include_answer=include_answer,
@@ -173,10 +183,10 @@ def build_paper_docx(
         return _build_docx_from_template(
             template,
             paper.title,
-            left_cell_xml,
-            right_cell_xml,
+            page_cells,
             images,
             image_relationships,
+            compact_layout=compact_layout,
         )
 
     paragraphs: list[str] = []
@@ -227,20 +237,32 @@ def _question_paragraphs_for_items(
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
     localized: bool,
+    density: str = _DENSITY_NORMAL,
 ) -> list[str]:
     paragraphs: list[str] = []
+    is_compact = density in {_DENSITY_COMPACT, _DENSITY_DENSE}
+    question_size = {_DENSITY_NORMAL: 23, _DENSITY_COMPACT: 21, _DENSITY_DENSE: 19}[density]
+    option_size = {_DENSITY_NORMAL: 22, _DENSITY_COMPACT: 19, _DENSITY_DENSE: 17}[density]
+    answer_size = {_DENSITY_NORMAL: 21, _DENSITY_COMPACT: 18, _DENSITY_DENSE: 16}[density]
+    line_height = None if density == _DENSITY_NORMAL else 220
 
     for index, question in numbered_questions:
         marks_text = ""
         if question.get("marks"):
             marks_text = f"（{question['marks']}分）" if localized else f" ({question['marks']} marks)"
-        paragraphs.append(_paragraph_with_latex(f"{index}. {question.get('text', '')}{marks_text}", bold=True, size=23))
+        paragraphs.append(
+            _paragraph_with_latex(
+                f"{index}. {question.get('text', '')}{marks_text}",
+                bold=True,
+                size=question_size,
+                spacing_after=0 if is_compact else None,
+                line=line_height,
+            )
+        )
 
         options = question.get("options") or []
         if options:
-            for option_index, option in enumerate(options):
-                label = chr(65 + option_index)
-                paragraphs.append(_paragraph_with_latex(f"    {label}. {option}", size=22))
+            paragraphs.extend(_option_paragraphs(options, density=density, size=option_size, line=line_height))
 
         for image in question.get("images") or []:
             relationship_id = _add_image_relationship(image.get("url", ""), images, image_relationships)
@@ -250,18 +272,178 @@ def _question_paragraphs_for_items(
                     paragraphs.append(_paragraph(str(image["caption"]), italic=True, size=18, align="center"))
 
         if question.get("type") == "essay":
-            paragraphs.append(_essay_answer_space(question.get("essayBlankSpace")))
+            blank_scale = {_DENSITY_NORMAL: 1.0, _DENSITY_COMPACT: 0.75, _DENSITY_DENSE: 0.55}[density]
+            paragraphs.append(_essay_answer_space(question.get("essayBlankSpace"), scale=blank_scale))
 
         if include_answer and "answer" in question:
             ans = question.get('answer', '')
             if isinstance(ans, list):
                 ans = ', '.join(ans)
             answer_label = "答案：" if localized else "Answer: "
-            paragraphs.append(_paragraph_with_latex(f"{answer_label}{ans}", italic=True, size=21))
+            paragraphs.append(
+                _paragraph_with_latex(
+                    f"{answer_label}{ans}",
+                    italic=True,
+                    size=answer_size,
+                    spacing_after=0 if is_compact else None,
+                    line=line_height,
+                )
+            )
 
-        paragraphs.append(_paragraph(""))
+        if not is_compact:
+            paragraphs.append(_paragraph(""))
 
     return paragraphs
+
+
+def _option_paragraphs(options: list[Any], *, density: str, size: int, line: int | None) -> list[str]:
+    option_texts = [f"{chr(65 + index)}. {option}" for index, option in enumerate(options)]
+    if density == _DENSITY_DENSE:
+        return [_paragraph_with_latex("    " + "    ".join(option_texts), size=size, spacing_after=0, line=line)]
+    if density == _DENSITY_COMPACT:
+        return [
+            _paragraph_with_latex(
+                "    " + "    ".join(option_texts[index : index + 2]),
+                size=size,
+                spacing_after=0,
+                line=line,
+            )
+            for index in range(0, len(option_texts), 2)
+        ]
+    return [_paragraph_with_latex(f"    {option}", size=size) for option in option_texts]
+
+
+def _template_question_pages(
+    paper: PaperEntity,
+    questions: list[dict[str, Any]],
+    *,
+    include_answer: bool,
+    images: list[tuple[str, bytes]],
+    image_relationships: list[str],
+) -> tuple[list[tuple[str, str]], bool]:
+    grouped = _group_template_questions(questions)
+    overall_density = _template_overall_density(grouped)
+    if overall_density == _DENSITY_NORMAL:
+        left_cell_xml, right_cell_xml, compact_layout = _template_question_cells(
+            paper,
+            questions,
+            include_answer=include_answer,
+            images=images,
+            image_relationships=image_relationships,
+        )
+        return [(left_cell_xml, right_cell_xml)], compact_layout
+
+    columns: list[list[str]] = [
+        [
+            _paragraph(
+                f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
+                bold=True,
+                size=20,
+                spacing_after=0,
+            ),
+            _paragraph(
+                "答题说明：请将答案填写在相应位置，计算与论述题请写出必要步骤。",
+                italic=True,
+                size=18,
+                spacing_after=0,
+            ),
+        ]
+    ]
+    column_units = [_template_intro_units()]
+    capacity = _template_column_capacity(overall_density)
+    section_number = 0
+    question_number = 1
+
+    def push_block(block_xml: str, block_units: float) -> None:
+        if column_units[-1] > 0 and column_units[-1] + block_units > capacity:
+            columns.append([])
+            column_units.append(0.0)
+        columns[-1].append(block_xml)
+        column_units[-1] += block_units
+
+    for question_type in _TEMPLATE_TYPE_ORDER:
+        grouped_questions = grouped.get(question_type) or []
+        if not grouped_questions:
+            continue
+
+        items = list(enumerate(grouped_questions, start=question_number))
+        question_number += len(items)
+        section_number += 1
+        section_density = _template_section_density(question_type, len(grouped_questions), len(questions), overall_density)
+        heading_xml = _paragraph(
+            _template_section_heading(section_number, question_type, items),
+            bold=True,
+            size=20 if section_density == _DENSITY_DENSE else 22,
+            spacing_after=0,
+        )
+        heading_units = _template_heading_units(section_density)
+
+        for item_index, item in enumerate(items):
+            question_xml = "".join(
+                _question_paragraphs_for_items(
+                    [item],
+                    include_answer=include_answer,
+                    images=images,
+                    image_relationships=image_relationships,
+                    localized=True,
+                    density=section_density,
+                )
+            )
+            block_xml = f"{heading_xml}{question_xml}" if item_index == 0 else question_xml
+            block_units = _template_question_units(item[1], include_answer=include_answer, density=section_density)
+            if item_index == 0:
+                block_units += heading_units
+            push_block(block_xml, block_units)
+
+    if len(columns) == 1 and len(columns[0]) == 2:
+        columns[0].append(_paragraph("本栏暂无题目。", italic=True, size=20))
+
+    page_cells: list[tuple[str, str]] = []
+    for index in range(0, len(columns), 2):
+        left_xml = "".join(columns[index])
+        right_xml = "".join(columns[index + 1]) if index + 1 < len(columns) else _paragraph("本栏暂无题目。", italic=True, size=20)
+        page_cells.append((left_xml, right_xml))
+    return page_cells, True
+
+
+def _group_template_questions(questions: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {qtype: [] for qtype in _TEMPLATE_TYPE_ORDER}
+    for question in questions:
+        question_type = question.get("type", "")
+        type_value = question_type.value if hasattr(question_type, "value") else str(question_type)
+        target_type = type_value if type_value in grouped else "short_answer"
+        grouped[target_type].append(question)
+    return grouped
+
+
+def _template_intro_units() -> float:
+    return 3.0
+
+
+def _template_column_capacity(density: str) -> float:
+    return _TEMPLATE_DENSE_COLUMN_CAPACITY if density == _DENSITY_DENSE else _TEMPLATE_COMPACT_COLUMN_CAPACITY
+
+
+def _template_heading_units(density: str) -> float:
+    return 1.2 if density == _DENSITY_DENSE else 1.5
+
+
+def _template_question_units(question: dict[str, Any], *, include_answer: bool, density: str) -> float:
+    options = question.get("options") or []
+    if density == _DENSITY_DENSE:
+        units = 1.7 + (0.9 if options else 0.0)
+    elif density == _DENSITY_COMPACT:
+        units = 2.0 + ((len(options) + 1) // 2 if options else 0.0)
+    else:
+        units = 2.8 + len(options)
+
+    if include_answer and "answer" in question:
+        units += 0.8 if density != _DENSITY_NORMAL else 1.1
+    if question.get("type") == "essay":
+        units += 4.0 if density == _DENSITY_DENSE else 5.0
+    if question.get("images"):
+        units += 6.0 * len(question.get("images") or [])
+    return units
 
 
 def _template_question_cells(
@@ -271,7 +453,7 @@ def _template_question_cells(
     include_answer: bool,
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     grouped: dict[str, list[dict[str, Any]]] = {qtype: [] for qtype in _TEMPLATE_TYPE_ORDER}
     for question in questions:
         question_type = question.get("type", "")
@@ -279,6 +461,8 @@ def _template_question_cells(
         target_type = type_value if type_value in grouped else "short_answer"
         grouped[target_type].append(question)
 
+    overall_density = _template_overall_density(grouped)
+    is_compact = overall_density in {_DENSITY_COMPACT, _DENSITY_DENSE}
     left_parts = [
         _paragraph(
             f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
@@ -299,11 +483,13 @@ def _template_question_cells(
         question_number += len(items)
         section_number += 1
         section_parts = left_parts if question_type in _TEMPLATE_LEFT_TYPES else right_parts
+        section_density = _template_section_density(question_type, len(grouped_questions), len(questions), overall_density)
         section_parts.append(
             _paragraph(
                 _template_section_heading(section_number, question_type, items),
                 bold=True,
-                size=24,
+                size=20 if section_density == _DENSITY_DENSE else 22 if section_density == _DENSITY_COMPACT else 24,
+                spacing_after=0 if section_density != _DENSITY_NORMAL else None,
             )
         )
         section_parts.extend(
@@ -313,6 +499,7 @@ def _template_question_cells(
                 images=images,
                 image_relationships=image_relationships,
                 localized=True,
+                density=section_density,
             )
         )
 
@@ -320,7 +507,31 @@ def _template_question_cells(
         left_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
     if not right_parts:
         right_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
-    return "".join(left_parts), "".join(right_parts)
+    return "".join(left_parts), "".join(right_parts), is_compact
+
+
+def _template_overall_density(grouped: dict[str, list[dict[str, Any]]]) -> str:
+    total_questions = sum(len(items) for items in grouped.values())
+    objective_questions = sum(len(grouped.get(question_type, [])) for question_type in _TEMPLATE_OBJECTIVE_TYPES)
+    if total_questions >= _TEMPLATE_DENSE_TOTAL_THRESHOLD or objective_questions >= _TEMPLATE_DENSE_OBJECTIVE_THRESHOLD:
+        return _DENSITY_DENSE
+    if total_questions >= _TEMPLATE_COMPACT_TOTAL_THRESHOLD or objective_questions >= _TEMPLATE_COMPACT_OBJECTIVE_THRESHOLD:
+        return _DENSITY_COMPACT
+    return _DENSITY_NORMAL
+
+
+def _template_section_density(question_type: str, section_count: int, total_questions: int, overall_density: str) -> str:
+    if overall_density == _DENSITY_NORMAL:
+        return _DENSITY_NORMAL
+    if question_type in _TEMPLATE_OBJECTIVE_TYPES:
+        if section_count >= _TEMPLATE_DENSE_OBJECTIVE_THRESHOLD or total_questions >= _TEMPLATE_DENSE_TOTAL_THRESHOLD:
+            return _DENSITY_DENSE
+        return _DENSITY_COMPACT
+    if question_type == "blank" and (section_count >= 5 or overall_density == _DENSITY_DENSE):
+        return _DENSITY_COMPACT
+    if question_type in {"short_answer", "essay"} and section_count >= 6:
+        return _DENSITY_COMPACT
+    return _DENSITY_NORMAL
 
 
 def _template_section_heading(
@@ -367,17 +578,21 @@ def _build_standalone_docx(
 def _build_docx_from_template(
     template_path: Path,
     paper_title: str,
-    left_cell_xml: str,
-    right_cell_xml: str,
+    page_cells: list[tuple[str, str]],
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
+    compact_layout: bool = False,
 ) -> bytes:
     buffer = BytesIO()
     with zipfile.ZipFile(template_path, "r") as template_archive:
         document_xml = template_archive.read("word/document.xml").decode("utf-8")
         document_xml = _replace_template_title(document_xml, paper_title)
         document_xml = _ensure_document_namespaces(document_xml)
-        document_xml = _populate_template_question_cells(document_xml, left_cell_xml, right_cell_xml)
+        document_xml = _populate_template_question_pages(
+            document_xml,
+            page_cells,
+            compact_layout=compact_layout,
+        )
 
         relationships_xml = template_archive.read("word/_rels/document.xml.rels").decode("utf-8")
         relationships_xml = _append_document_relationships(relationships_xml, image_relationships)
@@ -468,18 +683,58 @@ def _ensure_document_namespaces(document_xml: str) -> str:
     return document_xml[:document_tag_match.start()] + updated_tag + document_xml[document_tag_match.end():]
 
 
-def _populate_template_question_cells(document_xml: str, left_cell_xml: str, right_cell_xml: str) -> str:
-    table_start = document_xml.find("<w:tbl")
-    first_row_start = document_xml.find("<w:tr", table_start)
-    first_row_end = document_xml.find("</w:tr>", first_row_start)
-    if min(table_start, first_row_start, first_row_end) == -1:
+def _populate_template_question_pages(
+    document_xml: str,
+    page_cells: list[tuple[str, str]],
+    *,
+    compact_layout: bool = False,
+) -> str:
+    body_start = document_xml.find("<w:body>")
+    body_end = document_xml.find("</w:body>", body_start)
+    if min(body_start, body_end) == -1:
         return document_xml
+    body_content_start = body_start + len("<w:body>")
+    section_start = document_xml.rfind("<w:sectPr", body_content_start, body_end)
+    if section_start == -1:
+        section_start = body_end
+
+    page_template_xml = document_xml[body_content_start:section_start]
+    table_start = page_template_xml.find("<w:tbl")
+    table_end = page_template_xml.find("</w:tbl>", table_start)
+    if min(table_start, table_end) == -1:
+        return document_xml
+    table_end += len("</w:tbl>")
+    table_xml = page_template_xml[table_start:table_end]
+
+    populated_pages = []
+    for index, (left_cell_xml, right_cell_xml) in enumerate(page_cells or [("", "")]):
+        populated_table = _populate_template_table(
+            table_xml,
+            left_cell_xml,
+            right_cell_xml,
+            compact_layout=compact_layout,
+        )
+        populated_pages.append(page_template_xml[:table_start] + populated_table + page_template_xml[table_end:])
+    return document_xml[:body_content_start] + "".join(populated_pages) + document_xml[section_start:]
+
+
+def _populate_template_table(
+    table_xml: str,
+    left_cell_xml: str,
+    right_cell_xml: str,
+    *,
+    compact_layout: bool = False,
+) -> str:
+    first_row_start = table_xml.find("<w:tr")
+    first_row_end = table_xml.find("</w:tr>", first_row_start)
+    if min(first_row_start, first_row_end) == -1:
+        return table_xml
     first_row_end += len("</w:tr>")
 
-    row_xml = document_xml[first_row_start:first_row_end]
+    row_xml = table_xml[first_row_start:first_row_end]
     cell_matches = list(re.finditer(r"<w:tc\b[^>]*>.*?</w:tc>", row_xml, re.DOTALL))
     if len(cell_matches) < 2:
-        return document_xml
+        return table_xml
 
     replacements = (left_cell_xml, right_cell_xml)
     for match, replacement in reversed(list(zip(cell_matches[:2], replacements))):
@@ -492,7 +747,9 @@ def _populate_template_question_cells(document_xml: str, left_cell_xml: str, rig
         row_xml = row_xml[:match.start()] + updated_cell + row_xml[match.end():]
 
     row_xml = row_xml.replace("<w:cantSplit/>", "", 1)
-    return document_xml[:first_row_start] + row_xml + document_xml[first_row_end:]
+    if compact_layout:
+        row_xml = re.sub(r"<w:trHeight\b[^>]*/>", "", row_xml, count=1)
+    return table_xml[:first_row_start] + row_xml + table_xml[first_row_end:]
 
 
 def _append_document_relationships(relationships_xml: str, image_relationships: list[str]) -> str:
@@ -507,12 +764,29 @@ def _ensure_png_content_type(content_types_xml: str, images: list[tuple[str, byt
     return content_types_xml.replace("</Types>", f"{_PNG_CONTENT_TYPE}</Types>", 1)
 
 
-def _paragraph(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, align: str | None = None) -> str:
-    return _paragraph_from_runs(_text_runs(text, _run_props_xml(bold=bold, italic=italic, size=size)), align=align)
+def _paragraph(
+    text: str,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+    size: int | None = None,
+    align: str | None = None,
+    spacing_before: int | None = None,
+    spacing_after: int | None = None,
+    line: int | None = None,
+) -> str:
+    return _paragraph_from_runs(
+        _text_runs(text, _run_props_xml(bold=bold, italic=italic, size=size)),
+        align=align,
+        spacing_before=spacing_before,
+        spacing_after=spacing_after,
+        line=line,
+    )
 
 
-def _essay_answer_space(blank_space: Any) -> str:
-    height_twips = _essay_blank_height_twips(blank_space)
+def _essay_answer_space(blank_space: Any, *, scale: float = 1.0) -> str:
+    minimum_height_twips = _MIN_ESSAY_BLANK_LINES * _MIN_ESSAY_BLANK_LINE_HEIGHT * _TWIPS_PER_PX
+    height_twips = max(minimum_height_twips, int(_essay_blank_height_twips(blank_space) * scale))
     return (
         "<w:p>"
         f'<w:pPr><w:spacing w:before="0" w:after="0" w:line="{height_twips}" w:lineRule="exact"/></w:pPr>'
@@ -546,9 +820,25 @@ def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, parsed))
 
 
-def _paragraph_with_latex(text: str, *, bold: bool = False, italic: bool = False, size: int | None = None, align: str | None = None) -> str:
+def _paragraph_with_latex(
+    text: str,
+    *,
+    bold: bool = False,
+    italic: bool = False,
+    size: int | None = None,
+    align: str | None = None,
+    spacing_before: int | None = None,
+    spacing_after: int | None = None,
+    line: int | None = None,
+) -> str:
     run_props_xml = _run_props_xml(bold=bold, italic=italic, size=size)
-    return _paragraph_from_runs(_latex_runs(text, run_props_xml), align=align)
+    return _paragraph_from_runs(
+        _latex_runs(text, run_props_xml),
+        align=align,
+        spacing_before=spacing_before,
+        spacing_after=spacing_after,
+        line=line,
+    )
 
 
 def _run_props_xml(*, bold: bool = False, italic: bool = False, size: int | None = None) -> str:
@@ -562,10 +852,27 @@ def _run_props_xml(*, bold: bool = False, italic: bool = False, size: int | None
     return f"<w:rPr>{''.join(run_props)}</w:rPr>" if run_props else ""
 
 
-def _paragraph_from_runs(runs: str, *, align: str | None = None) -> str:
+def _paragraph_from_runs(
+    runs: str,
+    *,
+    align: str | None = None,
+    spacing_before: int | None = None,
+    spacing_after: int | None = None,
+    line: int | None = None,
+) -> str:
     props = []
     if align:
         props.append(f'<w:jc w:val="{align}"/>')
+    spacing_attrs = []
+    if spacing_before is not None:
+        spacing_attrs.append(f'w:before="{spacing_before}"')
+    if spacing_after is not None:
+        spacing_attrs.append(f'w:after="{spacing_after}"')
+    if line is not None:
+        spacing_attrs.append(f'w:line="{line}"')
+        spacing_attrs.append('w:lineRule="auto"')
+    if spacing_attrs:
+        props.append(f"<w:spacing {' '.join(spacing_attrs)}/>")
     paragraph_props = f"<w:pPr>{''.join(props)}</w:pPr>" if props else ""
     return f"<w:p>{paragraph_props}{runs}</w:p>"
 
