@@ -12,6 +12,7 @@ from testpaper_backend.repositories import PAPERS
 from testpaper_backend.schemas import (
     Envelope,
     ExportPreviewRequest,
+    LayoutDensity,
     PaperCreate,
     PaperEntity,
     PaperGenerateRequest,
@@ -263,10 +264,12 @@ def download_paper(
     format: str = Query(default="docx", pattern="^docx$"),
     questionOrder: QuestionOrder = QuestionOrder.paper,
     includeAnswer: bool = True,
+    layoutDensity: LayoutDensity = LayoutDensity.auto,
 ):
     paper = get_paper_or_404(paper_public_id)
-    questions = build_export_questions(paper, questionOrder, includeAnswer and has_permission(current_user, "answers:read"))
-    file_bytes = build_paper_docx(paper, questions, include_answer=includeAnswer and has_permission(current_user, "answers:read"))
+    include_answer = includeAnswer and has_permission(current_user, "answers:read")
+    questions = build_export_questions(paper, questionOrder, include_answer)
+    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layoutDensity)
     filename = docx_filename(paper.title)
     ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
 
@@ -276,5 +279,6 @@ def download_paper(
         headers={
             "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
             "X-Export-Format": format,
+            "X-Layout-Density": layoutDensity,
         },
     )

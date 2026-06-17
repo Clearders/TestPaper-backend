@@ -52,6 +52,7 @@ _TEMPLATE_OBJECTIVE_TYPES = frozenset(("single_choice", "multiple_choice", "true
 _DENSITY_NORMAL = "normal"
 _DENSITY_COMPACT = "compact"
 _DENSITY_DENSE = "dense"
+_DENSITY_AUTO = "auto"
 _TEMPLATE_COMPACT_TOTAL_THRESHOLD = 14
 _TEMPLATE_DENSE_TOTAL_THRESHOLD = 24
 _TEMPLATE_COMPACT_OBJECTIVE_THRESHOLD = 8
@@ -166,8 +167,10 @@ def build_paper_docx(
     questions: list[dict[str, Any]],
     *,
     include_answer: bool,
+    layout_density: str = _DENSITY_AUTO,
     template_path: Path | str | None = None,
 ) -> bytes:
+    density = _normalize_layout_density(layout_density)
     template = Path(template_path) if template_path is not None else DEFAULT_TEMPLATE_PATH
     use_template = template.is_file()
     images: list[tuple[str, bytes]] = []
@@ -179,6 +182,7 @@ def build_paper_docx(
             include_answer=include_answer,
             images=images,
             image_relationships=image_relationships,
+            layout_density=density,
         )
         return _build_docx_from_template(
             template,
@@ -208,6 +212,7 @@ def build_paper_docx(
             include_answer=include_answer,
             images=images,
             image_relationships=image_relationships,
+            density=density,
         )
     )
     document_body_xml = "".join(paragraphs)
@@ -220,6 +225,7 @@ def _question_paragraphs(
     include_answer: bool,
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
+    density: str = _DENSITY_NORMAL,
 ) -> list[str]:
     return _question_paragraphs_for_items(
         list(enumerate(questions, start=1)),
@@ -227,7 +233,13 @@ def _question_paragraphs(
         images=images,
         image_relationships=image_relationships,
         localized=False,
+        density=_DENSITY_NORMAL if density == _DENSITY_AUTO else density,
     )
+
+
+def _normalize_layout_density(layout_density: str) -> str:
+    value = layout_density.value if hasattr(layout_density, "value") else str(layout_density)
+    return value if value in {_DENSITY_AUTO, _DENSITY_NORMAL, _DENSITY_COMPACT, _DENSITY_DENSE} else _DENSITY_AUTO
 
 
 def _question_paragraphs_for_items(
@@ -320,9 +332,10 @@ def _template_question_pages(
     include_answer: bool,
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
+    layout_density: str = _DENSITY_AUTO,
 ) -> tuple[list[tuple[str, str]], bool]:
     grouped = _group_template_questions(questions)
-    overall_density = _template_overall_density(grouped)
+    overall_density = layout_density if layout_density != _DENSITY_AUTO else _template_overall_density(grouped)
     if overall_density == _DENSITY_NORMAL:
         left_cell_xml, right_cell_xml, compact_layout = _template_question_cells(
             paper,
@@ -330,6 +343,7 @@ def _template_question_pages(
             include_answer=include_answer,
             images=images,
             image_relationships=image_relationships,
+            layout_density=overall_density,
         )
         return [(left_cell_xml, right_cell_xml)], compact_layout
 
@@ -453,6 +467,7 @@ def _template_question_cells(
     include_answer: bool,
     images: list[tuple[str, bytes]],
     image_relationships: list[str],
+    layout_density: str = _DENSITY_AUTO,
 ) -> tuple[str, str, bool]:
     grouped: dict[str, list[dict[str, Any]]] = {qtype: [] for qtype in _TEMPLATE_TYPE_ORDER}
     for question in questions:
@@ -461,7 +476,7 @@ def _template_question_cells(
         target_type = type_value if type_value in grouped else "short_answer"
         grouped[target_type].append(question)
 
-    overall_density = _template_overall_density(grouped)
+    overall_density = layout_density if layout_density != _DENSITY_AUTO else _template_overall_density(grouped)
     is_compact = overall_density in {_DENSITY_COMPACT, _DENSITY_DENSE}
     left_parts = [
         _paragraph(

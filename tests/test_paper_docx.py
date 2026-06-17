@@ -71,6 +71,31 @@ def test_essay_blank_space_defaults_when_missing() -> None:
     assert 'w:line="2520"' in document_xml
 
 
+def test_layout_density_can_force_dense_docx_spacing() -> None:
+    docx = build_paper_docx(
+        _paper(),
+        [
+            {
+                "type": "single_choice",
+                "text": "Choose the dense option.",
+                "marks": 2,
+                "options": ["Alpha", "Beta", "Gamma", "Delta"],
+                "answer": "A",
+            }
+        ],
+        include_answer=True,
+        layout_density="dense",
+        template_path=Path("missing-template.docx"),
+    )
+
+    document_xml = _document_xml(docx)
+
+    assert 'w:sz w:val="19"' in document_xml
+    assert 'w:sz w:val="17"' in document_xml
+    assert 'w:line="220"' in document_xml
+    assert "A. Alpha    B. Beta    C. Gamma    D. Delta" in document_xml
+
+
 def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
     png = (
         "data:image/png;base64,"

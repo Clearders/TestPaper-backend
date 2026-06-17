@@ -26,6 +26,7 @@ from testpaper_backend.schemas.common import (
 from testpaper_backend.schemas.paper import (
     ExportPreviewRequest,
     GenerationTypeTarget,
+    LayoutDensity,
     PaperBase,
     PaperCreate,
     PaperEntity,

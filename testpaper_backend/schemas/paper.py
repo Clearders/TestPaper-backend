@@ -18,6 +18,13 @@ class QuestionOrder(StrEnum):
     categorized = "categorized"
 
 
+class LayoutDensity(StrEnum):
+    auto = "auto"
+    normal = "normal"
+    compact = "compact"
+    dense = "dense"
+
+
 class PaperBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(min_length=1)
@@ -123,3 +130,4 @@ class ExportPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     includeAnswer: bool = True
     questionOrder: QuestionOrder = QuestionOrder.paper
+    layoutDensity: LayoutDensity = LayoutDensity.auto
