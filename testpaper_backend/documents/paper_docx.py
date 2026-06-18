@@ -219,6 +219,22 @@ def build_paper_docx(
     return _build_standalone_docx(document_body_xml, images, image_relationships)
 
 
+def resolve_layout_density(
+    questions: list[dict[str, Any]],
+    layout_density: str = _DENSITY_AUTO,
+    *,
+    template_path: Path | str | None = None,
+) -> str:
+    density = _normalize_layout_density(layout_density)
+    if density != _DENSITY_AUTO:
+        return density
+
+    template = Path(template_path) if template_path is not None else DEFAULT_TEMPLATE_PATH
+    if template.is_file():
+        return _template_overall_density(_group_template_questions(questions))
+    return _DENSITY_NORMAL
+
+
 def _question_paragraphs(
     questions: list[dict[str, Any]],
     *,

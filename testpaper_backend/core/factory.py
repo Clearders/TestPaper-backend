@@ -30,7 +30,7 @@ def create_app(*, lifespan: Lifespan) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-Id", "X-CSRF-Token"],
-        expose_headers=["Content-Disposition", "X-Export-Format"],
+        expose_headers=["Content-Disposition", "X-Export-Format", "X-Layout-Density"],
     )
     trusted_hosts = get_trusted_hosts()
     if trusted_hosts != ["*"]:

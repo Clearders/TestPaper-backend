@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, R
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
-from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename
+from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
 from testpaper_backend.repositories import PAPERS
 from testpaper_backend.schemas import (
     Envelope,
@@ -269,6 +269,7 @@ def download_paper(
     paper = get_paper_or_404(paper_public_id)
     include_answer = includeAnswer and has_permission(current_user, "answers:read")
     questions = build_export_questions(paper, questionOrder, include_answer)
+    effective_layout_density = resolve_layout_density(questions, layoutDensity)
     file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layoutDensity)
     filename = docx_filename(paper.title)
     ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
@@ -279,6 +280,6 @@ def download_paper(
         headers={
             "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
             "X-Export-Format": format,
-            "X-Layout-Density": layoutDensity,
+            "X-Layout-Density": effective_layout_density,
         },
     )

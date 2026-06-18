@@ -11,7 +11,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
-from testpaper_backend.documents.paper_docx import build_paper_docx
+from testpaper_backend.documents.paper_docx import build_paper_docx, resolve_layout_density
 
 
 def _document_xml(docx_bytes: bytes) -> str:
@@ -94,6 +94,22 @@ def test_layout_density_can_force_dense_docx_spacing() -> None:
     assert 'w:sz w:val="17"' in document_xml
     assert 'w:line="220"' in document_xml
     assert "A. Alpha    B. Beta    C. Gamma    D. Delta" in document_xml
+
+
+def test_resolve_layout_density_reports_effective_auto_choice() -> None:
+    questions = [
+        {
+            "type": "single_choice",
+            "text": f"Auto choice {index}.",
+            "marks": 2,
+            "options": ["Alpha", "Beta", "Gamma", "Delta"],
+        }
+        for index in range(1, 16)
+    ]
+
+    assert resolve_layout_density(questions, "auto") == "dense"
+    assert resolve_layout_density(questions, "compact") == "compact"
+    assert resolve_layout_density(questions, "auto", template_path=Path("missing-template.docx")) == "normal"
 
 
 def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
