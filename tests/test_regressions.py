@@ -4,11 +4,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from testpaper_backend.api.routes import questions as question_routes
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts
 from testpaper_backend.core.csrf import CSRFMiddleware
 from testpaper_backend.core.factory import create_app
@@ -22,6 +23,7 @@ from testpaper_backend.schemas import (
     PasswordChange,
     ProfileUpdate,
     QuestionCorrectionCreate,
+    QuestionCorrectionUpdate,
     QuestionCreate,
     QuestionType,
     QuestionUpdate,
@@ -58,6 +60,23 @@ def _user(user_id: int, role: UserRole) -> UserEntity:
         createdAt=now,
         updatedAt=now,
     )
+
+
+def _request(path: str = "/api/v1/questions/question-1/corrections/1") -> Request:
+    request = Request(
+        {
+            "type": "http",
+            "method": "PATCH",
+            "path": path,
+            "headers": [],
+            "client": ("testclient", 50000),
+            "server": ("test", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+    request.state.request_id = "test-request"
+    return request
 
 
 def test_trimmed_required_fields_cannot_be_empty() -> None:
@@ -244,6 +263,10 @@ def test_csv_export_neutralizes_spreadsheet_formulas() -> None:
 
 
 def test_update_missing_correction_returns_404(monkeypatch) -> None:
+    class FakeScalarResult:
+        def first(self):
+            return None
+
     class FakeSession:
         def __enter__(self):
             return self
@@ -251,8 +274,8 @@ def test_update_missing_correction_returns_404(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, traceback):
             return False
 
-        def get(self, row_type, row_id):
-            return None
+        def scalars(self, statement):
+            return FakeScalarResult()
 
     monkeypatch.setattr("testpaper_backend.services.questions.SessionLocal", FakeSession)
     with pytest.raises(Exception) as exc_info:
@@ -261,7 +284,9 @@ def test_update_missing_correction_returns_404(monkeypatch) -> None:
 
 
 def test_update_correction_for_other_question_returns_404(monkeypatch) -> None:
-    row = SimpleNamespace(question_id=99)
+    class FakeScalarResult:
+        def first(self):
+            return None
 
     class FakeSession:
         def __enter__(self):
@@ -270,8 +295,11 @@ def test_update_correction_for_other_question_returns_404(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, traceback):
             return False
 
-        def get(self, row_type, row_id):
-            return row
+        def scalars(self, statement):
+            compiled = statement.compile()
+            assert "question_corrections" in str(compiled)
+            assert "question_id" in str(compiled)
+            return FakeScalarResult()
 
     monkeypatch.setattr("testpaper_backend.services.questions.SessionLocal", FakeSession)
     with pytest.raises(Exception) as exc_info:
@@ -284,6 +312,83 @@ def test_teacher_cannot_manage_other_question_corrections() -> None:
     with pytest.raises(Exception) as exc_info:
         ensure_question_correction_access(SimpleNamespace(ownerId=teacher.id + 1), teacher)
     assert getattr(exc_info.value, "status_code", None) == 403
+
+
+def test_update_question_correction_route_scopes_status_to_question(monkeypatch) -> None:
+    teacher = _user(9, UserRole.teacher)
+    question = SimpleNamespace(id=123, publicId="question-123", ownerId=teacher.id)
+    calls = {}
+
+    def fake_update(correction_id, question_id, new_status):
+        calls["update"] = (correction_id, question_id, new_status)
+        return SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "id": correction_id,
+                "questionId": question_id,
+                "userId": 42,
+                "category": "typo",
+                "message": "Fix typo",
+                "status": new_status.value,
+                "createdAt": "2026-06-14T00:00:00Z",
+                "updatedAt": "2026-06-14T00:00:00Z",
+            }
+        )
+
+    monkeypatch.setattr(question_routes, "get_question_or_404", lambda public_id: question)
+    monkeypatch.setattr(question_routes, "update_correction_status", fake_update)
+
+    response = question_routes.update_question_correction(
+        _request(),
+        "question-123",
+        77,
+        QuestionCorrectionUpdate(status=CorrectionStatus.accepted),
+        teacher,
+        None,
+    )
+
+    assert calls["update"] == (77, question.id, CorrectionStatus.accepted)
+    assert response["data"]["questionId"] == question.id
+
+
+def test_update_question_correction_route_rejects_non_owner(monkeypatch) -> None:
+    teacher = _user(9, UserRole.teacher)
+    question = SimpleNamespace(id=123, publicId="question-123", ownerId=teacher.id + 1)
+
+    monkeypatch.setattr(question_routes, "get_question_or_404", lambda public_id: question)
+    monkeypatch.setattr(
+        question_routes,
+        "update_correction_status",
+        lambda correction_id, question_id, new_status: pytest.fail("non-owner should not update correction status"),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        question_routes.update_question_correction(
+            _request(),
+            "question-123",
+            77,
+            QuestionCorrectionUpdate(status=CorrectionStatus.accepted),
+            teacher,
+            None,
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_delete_question_correction_route_rejects_non_owner(monkeypatch) -> None:
+    teacher = _user(9, UserRole.teacher)
+    question = SimpleNamespace(id=123, publicId="question-123", ownerId=teacher.id + 1)
+
+    monkeypatch.setattr(question_routes, "get_question_or_404", lambda public_id: question)
+    monkeypatch.setattr(
+        question_routes,
+        "delete_correction_entry",
+        lambda correction_id, question_id: pytest.fail("non-owner should not delete corrections"),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        question_routes.delete_question_correction("question-123", 77, teacher, None)
+
+    assert exc_info.value.status_code == 403
 
 
 def test_recent_username_change_is_rejected_in_profile_service(monkeypatch) -> None:

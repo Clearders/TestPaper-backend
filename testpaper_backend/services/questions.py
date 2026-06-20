@@ -378,8 +378,13 @@ def list_corrections(question_id: int) -> list[QuestionCorrectionEntity]:
 
 def update_correction_status(correction_id: int, question_id: int, new_status: CorrectionStatus) -> QuestionCorrectionEntity:
     with SessionLocal() as session:
-        row = session.get(QuestionCorrectionRow, correction_id)
-        if row is None or row.question_id != question_id:
+        row = session.scalars(
+            select(QuestionCorrectionRow).where(
+                QuestionCorrectionRow.id == correction_id,
+                QuestionCorrectionRow.question_id == question_id,
+            )
+        ).first()
+        if row is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found for this question"},
