@@ -23,36 +23,25 @@ PapersWriteDep = Annotated[UserEntity, Depends(require_permission("papers:write"
 UsersManageDep = Annotated[UserEntity, Depends(require_permission("users:manage"))]
 
 
-def _rate_limit_login(request: Request):
+def _rate_limit(request: Request, scope: str, max_attempts: int, window_seconds: int) -> None:
     ip = get_client_ip(request)
-    check_rate_limit(
-        f"login:{ip}",
-        get_rate_limit_max_attempts(),
-        get_rate_limit_window_seconds(),
-    )
+    check_rate_limit(f"{scope}:{ip}", max_attempts, window_seconds)
 
 
-def _rate_limit_register(request: Request):
-    ip = get_client_ip(request)
-    check_rate_limit(
-        f"register:{ip}",
-        get_rate_limit_max_attempts(),
-        get_rate_limit_window_seconds(),
-    )
+def _rate_limit_login(request: Request) -> None:
+    _rate_limit(request, "login", get_rate_limit_max_attempts(), get_rate_limit_window_seconds())
+
+
+def _rate_limit_register(request: Request) -> None:
+    _rate_limit(request, "register", get_rate_limit_max_attempts(), get_rate_limit_window_seconds())
 
 
 RateLimitLoginDep = Annotated[None, Depends(_rate_limit_login)]
 RateLimitRegisterDep = Annotated[None, Depends(_rate_limit_register)]
 
 
-def _rate_limit_write(request: Request):
-    ip = get_client_ip(request)
-    check_rate_limit(
-        f"write:{ip}",
-        get_rate_limit_write_max_attempts(),
-        get_rate_limit_write_window_seconds(),
-    )
+def _rate_limit_write(request: Request) -> None:
+    _rate_limit(request, "write", get_rate_limit_write_max_attempts(), get_rate_limit_write_window_seconds())
 
 
 RateLimitWriteDep = Annotated[None, Depends(_rate_limit_write)]
-

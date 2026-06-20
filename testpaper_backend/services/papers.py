@@ -5,8 +5,10 @@ from typing import Any
 from fastapi import HTTPException, status
 
 from testpaper_backend.repositories import PAPERS, QUESTIONS, normalize_question_type
-from testpaper_backend.schemas import PaperEntity, QuestionOrder, QuestionRef, QuestionType
-from testpaper_backend.services.questions import question_to_dict
+from testpaper_backend.schemas import PaperEntity, PaperUpdate, QuestionOrder, QuestionOrderUpdate, QuestionRef, QuestionType, UserEntity
+from testpaper_backend.security import has_permission
+from testpaper_backend.services.questions import get_question_or_404, question_to_dict
+from testpaper_backend.time_utils import now_utc
 
 
 def get_paper_or_404(paper_public_id: str) -> PaperEntity:
@@ -17,6 +19,15 @@ def get_paper_or_404(paper_public_id: str) -> PaperEntity:
             detail={"code": "PAPER_NOT_FOUND", "message": "Paper not found"},
         )
     return paper
+
+
+def ensure_paper_owner_access(paper: PaperEntity, current_user: UserEntity) -> None:
+    if paper.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "FORBIDDEN", "message": "You can only modify papers you own"},
+    )
 
 
 def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str) -> None:
@@ -32,6 +43,74 @@ def validate_unique_question_refs(items: list[QuestionRef], message_prefix: str)
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "VALIDATION_ERROR", "message": f"{message_prefix} must not contain duplicate order numbers"},
         )
+
+
+def update_paper_metadata(paper: PaperEntity, payload: PaperUpdate) -> PaperEntity:
+    data = paper.model_dump()
+    data.update(payload.model_dump(exclude_unset=True))
+    data["updatedAt"] = now_utc()
+    updated = PaperEntity(**data)
+    PAPERS[paper.id] = updated
+    return updated
+
+
+def add_questions_to_paper(paper: PaperEntity, question_refs: list[QuestionRef]) -> PaperEntity:
+    validate_unique_question_refs(question_refs, "questions")
+    existing_ids = {item.questionPublicId for item in paper.questions}
+    existing_orders = {item.orderNo for item in paper.questions}
+    additions = []
+    for item in question_refs:
+        get_question_or_404(item.questionPublicId)
+        if item.questionPublicId in existing_ids:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "QUESTION_ALREADY_IN_PAPER", "message": "Question already exists in paper"},
+            )
+        if item.orderNo in existing_orders:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "VALIDATION_ERROR", "message": "orderNo already exists in paper"},
+            )
+        additions.append(QuestionRef(**item.model_dump()))
+    paper.questions.extend(additions)
+    return _save_ordered_paper(paper)
+
+
+def remove_question_from_paper(paper: PaperEntity, question_public_id: str) -> PaperEntity:
+    before = len(paper.questions)
+    paper.questions = [item for item in paper.questions if item.questionPublicId != question_public_id]
+    if len(paper.questions) == before:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "QUESTION_NOT_FOUND", "message": "Question not found in paper"},
+        )
+    return _save_ordered_paper(paper)
+
+
+def reorder_paper_question_refs(paper: PaperEntity, payload: QuestionOrderUpdate) -> PaperEntity:
+    validate_unique_question_refs(
+        [QuestionRef(questionPublicId=item.questionPublicId, orderNo=item.orderNo) for item in payload.orders],
+        "orders",
+    )
+    order_map = {item.questionPublicId: item.orderNo for item in payload.orders}
+    existing_ids = {item.questionPublicId for item in paper.questions}
+    if set(order_map) != existing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "VALIDATION_ERROR", "message": "orders must include every question in the paper"},
+        )
+    paper.questions = [
+        QuestionRef(questionPublicId=item.questionPublicId, orderNo=order_map[item.questionPublicId], marks=item.marks)
+        for item in paper.questions
+    ]
+    return _save_ordered_paper(paper)
+
+
+def _save_ordered_paper(paper: PaperEntity) -> PaperEntity:
+    paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
+    paper.updatedAt = now_utc()
+    PAPERS[paper.id] = paper
+    return paper
 
 
 def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dict[str, Any]:

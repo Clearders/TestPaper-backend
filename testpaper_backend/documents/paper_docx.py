@@ -1,3 +1,4 @@
+﻿# ruff: noqa: RUF001
 from __future__ import annotations
 
 import base64
@@ -738,7 +739,7 @@ def _populate_template_question_pages(
     table_xml = page_template_xml[table_start:table_end]
 
     populated_pages = []
-    for index, (left_cell_xml, right_cell_xml) in enumerate(page_cells or [("", "")]):
+    for left_cell_xml, right_cell_xml in page_cells or [("", "")]:
         populated_table = _populate_template_table(
             table_xml,
             left_cell_xml,
@@ -768,7 +769,7 @@ def _populate_template_table(
         return table_xml
 
     replacements = (left_cell_xml, right_cell_xml)
-    for match, replacement in reversed(list(zip(cell_matches[:2], replacements))):
+    for match, replacement in reversed(list(zip(cell_matches[:2], replacements, strict=True))):
         cell_xml = match.group(0)
         properties_end = cell_xml.find("</w:tcPr>")
         if properties_end == -1:

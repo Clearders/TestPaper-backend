@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 import os
@@ -5,8 +6,8 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace

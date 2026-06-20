@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Request, Response, status
 
 from testpaper_backend.api.dependencies import CurrentUserDep, RateLimitLoginDep, RateLimitRegisterDep, RateLimitWriteDep
 from testpaper_backend.core.csrf import clear_csrf_cookie, generate_csrf_token, set_csrf_cookie
 from testpaper_backend.core.responses import envelope
-from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import (
     AuthSession,
     Envelope,
@@ -21,23 +17,17 @@ from testpaper_backend.schemas import (
     ProfileUpdate,
     RegisterRequest,
     UserEntity,
-    UserRole,
 )
-from testpaper_backend.security import (
-    auth_error,
-    get_request_token,
-    password_hash,
-    user_row_to_entity,
-    verify_password,
-)
+from testpaper_backend.security import get_request_token
 from testpaper_backend.services.auth_sessions import (
+    authenticate_user,
     clear_auth_cookie,
-    create_auth_session,
     refresh_auth_session,
+    register_user,
+    revoke_auth_session,
     set_auth_cookie,
 )
-from testpaper_backend.services.profiles import store_avatar
-from testpaper_backend.time_utils import now_utc
+from testpaper_backend.services.profiles import change_user_password, deactivate_user_account, update_user_avatar, update_user_profile
 
 logger = logging.getLogger(__name__)
 
@@ -46,60 +36,18 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 @router.post("/login", response_model=Envelope[AuthSession])
 def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
-    username = payload.username.strip().lower()
-    with SessionLocal() as session:
-        user_row = session.scalars(select(UserRow).where(UserRow.username == username)).first()
-        if user_row is None or not user_row.is_active:
-            raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
-        valid, needs_migration = verify_password(payload.password, user_row.password_hash)
-        if not valid:
-            raise auth_error("INVALID_CREDENTIALS", "Invalid username or password")
-
-        logger.info("User login attempt for user: %s", user_row.public_id)
-
-        if needs_migration:
-            user_row.password_hash = password_hash(payload.password)
-            session.commit()
-
-        token, auth_session = create_auth_session(session, user_row)
-        set_auth_cookie(response, token, auth_session.expiresAt)
-        set_csrf_cookie(response, generate_csrf_token())
-        return envelope(auth_session.model_dump(mode="json"), request)
+    token, auth_session = authenticate_user(payload)
+    set_auth_cookie(response, token, auth_session.expiresAt)
+    set_csrf_cookie(response, generate_csrf_token())
+    return envelope(auth_session.model_dump(mode="json"), request)
 
 
 @router.post("/register", response_model=Envelope[AuthSession], status_code=status.HTTP_201_CREATED)
 def register(request: Request, response: Response, payload: RegisterRequest, _: RateLimitRegisterDep):
-    with SessionLocal() as session:
-        existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
-            )
-
-        now = now_utc()
-        user_row = UserRow(
-            username=payload.username,
-            display_name=payload.displayName,
-            password_hash=password_hash(payload.password),
-            role=UserRole.viewer.value,
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(user_row)
-        try:
-            session.flush()
-            token, auth_session = create_auth_session(session, user_row)
-        except IntegrityError as exc:
-            session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
-            ) from exc
-        set_auth_cookie(response, token, auth_session.expiresAt)
-        set_csrf_cookie(response, generate_csrf_token())
-        return envelope(auth_session.model_dump(mode="json"), request)
+    token, auth_session = register_user(payload)
+    set_auth_cookie(response, token, auth_session.expiresAt)
+    set_csrf_cookie(response, generate_csrf_token())
+    return envelope(auth_session.model_dump(mode="json"), request)
 
 
 @router.get("/me", response_model=Envelope[UserEntity])
@@ -116,12 +64,7 @@ def refresh_session(request: Request, response: Response):
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: Request):
-    token = get_request_token(request)
-    with SessionLocal() as session:
-        token_row = session.get(AuthTokenRow, token) if token else None
-        if token_row is not None:
-            session.delete(token_row)
-            session.commit()
+    revoke_auth_session(get_request_token(request))
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
     clear_csrf_cookie(response)
@@ -130,95 +73,26 @@ def logout(request: Request):
 
 @router.patch("/profile", response_model=Envelope[UserEntity])
 def update_profile(request: Request, payload: ProfileUpdate, current_user: CurrentUserDep, _: RateLimitWriteDep):
-    with SessionLocal() as session:
-        user_row = session.get(UserRow, current_user.id)
-        if user_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
-
-        if payload.username is not None and payload.username != user_row.username:
-            if user_row.last_username_changed_at is not None:
-                days_since = now_utc() - user_row.last_username_changed_at
-                if days_since < timedelta(days=30):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail={"code": "USERNAME_CHANGE_TOO_SOON", "message": "Username can only be changed once every 30 days"},
-                    )
-            existing = session.scalars(
-                select(UserRow).where(UserRow.username == payload.username, UserRow.id != current_user.id)
-            ).first()
-            if existing is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
-                )
-            user_row.username = payload.username
-            user_row.last_username_changed_at = now_utc()
-
-        if payload.displayName is not None:
-            user_row.display_name = payload.displayName
-
-        user_row.updated_at = now_utc()
-        try:
-            session.commit()
-        except IntegrityError as exc:
-            session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
-            ) from exc
-        session.refresh(user_row)
-        return envelope(user_row_to_entity(user_row).model_dump(mode="json"), request)
+    user = update_user_profile(current_user.id, payload)
+    return envelope(user.model_dump(mode="json"), request)
 
 
 @router.put("/password")
 def change_password(request: Request, payload: PasswordChange, current_user: CurrentUserDep, _: RateLimitWriteDep):
-    with SessionLocal() as session:
-        user_row = session.get(UserRow, current_user.id)
-        if user_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
-        valid, _ = verify_password(payload.currentPassword, user_row.password_hash)
-        if not valid:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "INVALID_PASSWORD", "message": "Current password is incorrect"},
-            )
-        user_row.password_hash = password_hash(payload.newPassword)
-        user_row.updated_at = now_utc()
-        current_token = get_request_token(request)
-        revoke_other_sessions = delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)
-        if current_token:
-            revoke_other_sessions = revoke_other_sessions.where(AuthTokenRow.token != current_token)
-        session.execute(revoke_other_sessions)
-        session.commit()
+    change_user_password(current_user.id, payload, get_request_token(request))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/avatar", response_model=Envelope[ImageUploadResponse])
 def upload_avatar(request: Request, payload: ImageUploadPayload, current_user: CurrentUserDep, _: RateLimitWriteDep):
-    avatar = store_avatar(payload, current_user.publicId)
-    with SessionLocal() as session:
-        user_row = session.get(UserRow, current_user.id)
-        if user_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
-        user_row.avatar_url = avatar.url
-        user_row.updated_at = now_utc()
-        session.commit()
-        return envelope(avatar.model_dump(mode="json"), request)
+    avatar = update_user_avatar(current_user.id, current_user.publicId, payload)
+    return envelope(avatar.model_dump(mode="json"), request)
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-def delete_account(request: Request, current_user: CurrentUserDep, _: RateLimitWriteDep):
-    with SessionLocal() as session:
-        session.execute(
-            delete(AuthTokenRow).where(AuthTokenRow.user_id == current_user.id)
-        )
-        user_row = session.get(UserRow, current_user.id)
-        if user_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND", "message": "User not found"})
-        user_row.is_active = False
-        user_row.updated_at = now_utc()
-        session.commit()
-        logger.info("Account deleted: %s", current_user.publicId)
+def delete_account(current_user: CurrentUserDep, _: RateLimitWriteDep):
+    deactivate_user_account(current_user.id)
+    logger.info("Account deleted: %s", current_user.publicId)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_auth_cookie(response)
     clear_csrf_cookie(response)

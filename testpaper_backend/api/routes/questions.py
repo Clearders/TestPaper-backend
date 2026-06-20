@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import QuestionsDeleteDep, QuestionsReadDep, QuestionsWriteDep, RateLimitWriteDep
-from testpaper_backend.api.routes.meta import invalidate_meta_cache
 from testpaper_backend.core.responses import envelope
-from testpaper_backend.repositories import QUESTIONS
 from testpaper_backend.schemas import (
     Difficulty,
     Envelope,
@@ -24,20 +23,20 @@ from testpaper_backend.schemas import (
 )
 from testpaper_backend.security import has_permission
 from testpaper_backend.services.questions import (
-    apply_question_update,
     create_correction,
+    create_question_for_user,
     delete_correction_entry,
+    delete_question_for_user,
     delete_revision,
+    ensure_question_correction_access,
     ensure_question_owner_access,
     get_question_or_404,
     list_corrections,
     list_revisions,
-    normalize_question_owner,
-    normalize_question_payload,
     query_questions_page,
     question_to_dict,
     update_correction_status,
-    validate_question_payload,
+    update_question_for_user,
 )
 from testpaper_backend.services.realtime import realtime
 
@@ -46,12 +45,39 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
 
 
-def normalize_update_owner(payload: QuestionUpdate, current_user) -> None:
-    if has_permission(current_user, "users:manage"):
-        if "ownerId" in payload.model_fields_set and payload.ownerId is not None:
-            payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
-        return
-    payload.ownerId = current_user.id
+def _list_question_page(
+    *,
+    current_user,
+    q: str | None,
+    subjects: str | None,
+    difficulty: Difficulty | None,
+    question_type: QuestionType | None,
+    tags: str | None,
+    has_latex: bool | None,
+    owner_id: int | None,
+    include_answer: bool,
+    page: int,
+    page_size: int,
+    sort_by: str | None,
+    sort_order: SortOrder,
+) -> dict[str, Any]:
+    can_read_answers = has_permission(current_user, "answers:read")
+    page_data = query_questions_page(
+        q=q,
+        subjects=subjects,
+        difficulty=difficulty,
+        question_type=question_type,
+        tags=tags,
+        has_latex_filter=has_latex,
+        owner_id=owner_id,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        page_size=page_size,
+        search_answers=can_read_answers,
+    )
+    page_data["items"] = [question_to_dict(item, include_answer=include_answer and can_read_answers) for item in page_data["items"]]
+    return page_data
 
 
 @router.get("", response_model=Envelope[PaginatedResponse[QuestionEntity]])
@@ -71,22 +97,21 @@ def list_questions(
     sortBy: str | None = None,
     sortOrder: SortOrder = SortOrder.desc,
 ):
-    can_read_answers = has_permission(current_user, "answers:read")
-    page_data = query_questions_page(
+    page_data = _list_question_page(
+        current_user=current_user,
         q=q,
         subjects=subjects,
         difficulty=difficulty,
         question_type=type,
         tags=tags,
-        has_latex_filter=hasLatex,
+        has_latex=hasLatex,
         owner_id=ownerId,
-        sort_by=sortBy,
-        sort_order=sortOrder,
+        include_answer=includeAnswer,
         page=page,
         page_size=pageSize,
-        search_answers=can_read_answers,
+        sort_by=sortBy,
+        sort_order=sortOrder,
     )
-    page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
 
 
@@ -106,22 +131,21 @@ def list_my_questions(
     sortBy: str | None = None,
     sortOrder: SortOrder = SortOrder.desc,
 ):
-    can_read_answers = has_permission(current_user, "answers:read")
-    page_data = query_questions_page(
+    page_data = _list_question_page(
+        current_user=current_user,
         q=q,
         subjects=subjects,
         difficulty=difficulty,
         question_type=type,
         tags=tags,
-        has_latex_filter=hasLatex,
+        has_latex=hasLatex,
         owner_id=current_user.id,
-        sort_by=sortBy,
-        sort_order=sortOrder,
+        include_answer=includeAnswer,
         page=page,
         page_size=pageSize,
-        search_answers=can_read_answers,
+        sort_by=sortBy,
+        sort_order=sortOrder,
     )
-    page_data["items"] = [question_to_dict(item, include_answer=includeAnswer and can_read_answers) for item in page_data["items"]]
     return envelope(page_data, request)
 
 
@@ -144,15 +168,13 @@ def create_question(
     current_user: QuestionsWriteDep,
     _: RateLimitWriteDep,
 ):
-    validate_question_payload(payload)
-    payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
-    question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
+    question = create_question_for_user(payload, current_user)
+
     background_tasks.add_task(
         realtime.broadcast,
         "question.created",
         {"question": question_to_dict(question, include_answer=False), "actorId": current_user.id},
     )
-    invalidate_meta_cache()
     logger.info("Question created: %s by user %s", question.publicId, current_user.publicId)
     return envelope(question_to_dict(question), request)
 
@@ -166,17 +188,13 @@ def update_question(
     current_user: QuestionsWriteDep,
     _: RateLimitWriteDep,
 ):
-    question = get_question_or_404(question_public_id)
-    ensure_question_owner_access(question, current_user)
-    normalize_update_owner(payload, current_user)
-    updated, revision = apply_question_update(question, payload, current_user.id)
-    QUESTIONS.update_with_revision(question.id, updated, revision)
+    updated = update_question_for_user(question_public_id, payload, current_user)
+
     background_tasks.add_task(
         realtime.broadcast,
         "question.updated",
         {"question": question_to_dict(updated, include_answer=False), "actorId": current_user.id},
     )
-    invalidate_meta_cache()
     logger.info("Question updated: %s", question_public_id)
     return envelope(question_to_dict(updated), request)
 
@@ -188,15 +206,13 @@ def delete_question(
     current_user: QuestionsDeleteDep,
     _: RateLimitWriteDep,
 ):
-    question = get_question_or_404(question_public_id)
-    ensure_question_owner_access(question, current_user)
-    del QUESTIONS[question.id]
+    question = delete_question_for_user(question_public_id, current_user)
+
     background_tasks.add_task(
         realtime.broadcast,
         "question.deleted",
         {"questionId": question.publicId, "actorId": current_user.id},
     )
-    invalidate_meta_cache()
     logger.info("Question deleted: %s", question_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -246,18 +262,8 @@ def update_question_correction(
     _: RateLimitWriteDep,
 ):
     question = get_question_or_404(question_public_id)
-    if question.ownerId not in (None, current_user.id) and not has_permission(current_user, "users:manage"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "FORBIDDEN", "message": "Only the question owner or an administrator can manage corrections"},
-        )
-    corrections = list_corrections(question.id)
-    if not any(c.id == correction_id for c in corrections):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found for this question"},
-        )
-    updated = update_correction_status(correction_id, payload.status)
+    ensure_question_correction_access(question, current_user)
+    updated = update_correction_status(correction_id, question.id, payload.status)
     return envelope(updated.model_dump(mode="json"), request)
 
 

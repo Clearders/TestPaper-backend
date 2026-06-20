@@ -8,7 +8,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, R
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
-from testpaper_backend.repositories import PAPERS
 from testpaper_backend.schemas import (
     Envelope,
     ExportPreviewRequest,
@@ -25,27 +24,21 @@ from testpaper_backend.security import has_permission
 from testpaper_backend.services.paper_create import create_paper_from_payload, generate_paper_from_result
 from testpaper_backend.services.paper_generation import generate_paper_with_genetic_algorithm
 from testpaper_backend.services.papers import (
+    add_questions_to_paper,
     build_export_questions,
+    ensure_paper_owner_access,
     get_paper_or_404,
     paper_with_questions,
+    remove_question_from_paper,
+    reorder_paper_question_refs,
+    update_paper_metadata,
     validate_unique_question_refs,
 )
-from testpaper_backend.services.questions import get_question_or_404
 from testpaper_backend.services.realtime import realtime
-from testpaper_backend.time_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
-
-
-def _ensure_paper_owner_access(paper: PaperEntity, current_user) -> None:
-    if paper.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={"code": "FORBIDDEN", "message": "You can only modify papers you own"},
-    )
 
 
 @router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
@@ -123,13 +116,8 @@ def update_paper(
     _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
-    _ensure_paper_owner_access(paper, current_user)
-    data = paper.model_dump()
-    patch = payload.model_dump(exclude_unset=True)
-    data.update(patch)
-    data["updatedAt"] = now_utc()
-    updated = PaperEntity(**data)
-    PAPERS[paper.id] = updated
+    ensure_paper_owner_access(paper, current_user)
+    updated = update_paper_metadata(paper, payload)
     background_tasks.add_task(
         realtime.broadcast,
         "paper.updated",
@@ -148,31 +136,11 @@ def add_paper_questions(
     _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
-    _ensure_paper_owner_access(paper, current_user)
-    validate_unique_question_refs(payload, "questions")
-    existing_ids = {item.questionPublicId for item in paper.questions}
-    existing_orders = {item.orderNo for item in paper.questions}
-    additions = []
-    for item in payload:
-        get_question_or_404(item.questionPublicId)
-        if item.questionPublicId in existing_ids:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "QUESTION_ALREADY_IN_PAPER", "message": "Question already exists in paper"},
-            )
-        if item.orderNo in existing_orders:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"code": "VALIDATION_ERROR", "message": "orderNo already exists in paper"},
-            )
-        additions.append(QuestionRef(**item.model_dump()))
-    paper.questions.extend(additions)
-    paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
-    paper.updatedAt = now_utc()
-    PAPERS[paper.id] = paper
-    payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
-    background_tasks.add_task(realtime.broadcast, "paper.questions.added", payload)
-    return envelope(paper_with_questions(paper), request)
+    ensure_paper_owner_access(paper, current_user)
+    updated = add_questions_to_paper(paper, payload)
+    event_payload = {"paper": updated.model_dump(mode="json"), "actorId": current_user.id, "paperId": updated.publicId}
+    background_tasks.add_task(realtime.broadcast, "paper.questions.added", event_payload)
+    return envelope(paper_with_questions(updated), request)
 
 
 @router.delete("/{paper_public_id}/questions/{question_public_id}", response_model=Envelope[PaperEntity])
@@ -185,22 +153,19 @@ def remove_paper_question(
     _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
-    _ensure_paper_owner_access(paper, current_user)
-    before = len(paper.questions)
-    paper.questions = [item for item in paper.questions if item.questionPublicId != question_public_id]
-    if len(paper.questions) == before:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "QUESTION_NOT_FOUND", "message": "Question not found in paper"},
-        )
-    paper.updatedAt = now_utc()
-    PAPERS[paper.id] = paper
+    ensure_paper_owner_access(paper, current_user)
+    updated = remove_question_from_paper(paper, question_public_id)
     background_tasks.add_task(
         realtime.broadcast,
         "paper.question.removed",
-        {"paper": paper.model_dump(mode="json"), "questionId": question_public_id, "actorId": current_user.id, "paperId": paper.publicId},
+        {
+            "paper": updated.model_dump(mode="json"),
+            "questionId": question_public_id,
+            "actorId": current_user.id,
+            "paperId": updated.publicId,
+        },
     )
-    return envelope(paper_with_questions(paper), request)
+    return envelope(paper_with_questions(updated), request)
 
 
 @router.put("/{paper_public_id}/questions/order", response_model=Envelope[PaperEntity])
@@ -213,29 +178,11 @@ def reorder_paper_questions(
     _: RateLimitWriteDep,
 ):
     paper = get_paper_or_404(paper_public_id)
-    _ensure_paper_owner_access(paper, current_user)
-    validate_unique_question_refs(
-        [QuestionRef(questionPublicId=item.questionPublicId, orderNo=item.orderNo)
-         for item in payload.orders],
-        "orders",
-    )
-    order_map = {item.questionPublicId: item.orderNo for item in payload.orders}
-    existing_ids = {item.questionPublicId for item in paper.questions}
-    if set(order_map) != existing_ids:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "orders must include every question in the paper"},
-        )
-    paper.questions = [
-        QuestionRef(questionPublicId=item.questionPublicId, orderNo=order_map[item.questionPublicId], marks=item.marks)
-        for item in paper.questions
-    ]
-    paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
-    paper.updatedAt = now_utc()
-    PAPERS[paper.id] = paper
-    payload = {"paper": paper.model_dump(mode="json"), "actorId": current_user.id, "paperId": paper.publicId}
-    background_tasks.add_task(realtime.broadcast, "paper.questions.reordered", payload)
-    return envelope(paper_with_questions(paper), request)
+    ensure_paper_owner_access(paper, current_user)
+    updated = reorder_paper_question_refs(paper, payload)
+    event_payload = {"paper": updated.model_dump(mode="json"), "actorId": current_user.id, "paperId": updated.publicId}
+    background_tasks.add_task(realtime.broadcast, "paper.questions.reordered", event_payload)
+    return envelope(paper_with_questions(updated), request)
 
 
 @router.post("/{paper_public_id}/export-preview", response_model=Envelope[dict])

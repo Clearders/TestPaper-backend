@@ -34,6 +34,7 @@ from testpaper_backend.schemas import (
     UserEntity,
 )
 from testpaper_backend.security import has_permission
+from testpaper_backend.services.metadata import invalidate_meta_cache
 from testpaper_backend.time_utils import now_utc
 
 QUESTION_SORT_COLUMNS = {
@@ -66,10 +67,7 @@ def apply_question_update(
     data.update(patch_data)
 
     option_types = (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
-    if (
-        (patch_data.get("type") and patch_data["type"] in option_types)
-        or data.get("type") in option_types
-    ):
+    if (patch_data.get("type") and patch_data["type"] in option_types) or data.get("type") in option_types:
         options = data.get("options") or []
         data["options"] = [option.strip() for option in options if option and option.strip()]
     elif data.get("type") not in option_types:
@@ -177,6 +175,49 @@ def ensure_question_owner_access(question: QuestionEntity, current_user: UserEnt
         status_code=status.HTTP_403_FORBIDDEN,
         detail={"code": "FORBIDDEN", "message": "You can only modify questions you own"},
     )
+
+
+def ensure_question_correction_access(question: QuestionEntity, current_user: UserEntity) -> None:
+    if question.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "FORBIDDEN", "message": "Only the question owner or an administrator can manage corrections"},
+    )
+
+
+def normalize_update_owner(payload: QuestionUpdate, current_user: UserEntity) -> None:
+    if has_permission(current_user, "users:manage"):
+        if "ownerId" in payload.model_fields_set and payload.ownerId is not None:
+            payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
+        return
+    payload.ownerId = current_user.id
+
+
+def create_question_for_user(payload: QuestionCreate, current_user: UserEntity) -> QuestionEntity:
+    validate_question_payload(payload)
+    payload.ownerId = normalize_question_owner(payload.ownerId, current_user)
+    question = QUESTIONS.create(normalize_question_payload(payload, question_id=0))
+    invalidate_meta_cache()
+    return question
+
+
+def update_question_for_user(question_public_id: str, payload: QuestionUpdate, current_user: UserEntity) -> QuestionEntity:
+    question = get_question_or_404(question_public_id)
+    ensure_question_owner_access(question, current_user)
+    normalize_update_owner(payload, current_user)
+    updated, revision = apply_question_update(question, payload, current_user.id)
+    QUESTIONS.update_with_revision(question.id, updated, revision)
+    invalidate_meta_cache()
+    return updated
+
+
+def delete_question_for_user(question_public_id: str, current_user: UserEntity) -> QuestionEntity:
+    question = get_question_or_404(question_public_id)
+    ensure_question_owner_access(question, current_user)
+    del QUESTIONS[question.id]
+    invalidate_meta_cache()
+    return question
 
 
 def validate_question_payload(payload: QuestionBase) -> None:
@@ -335,15 +376,15 @@ def list_corrections(question_id: int) -> list[QuestionCorrectionEntity]:
         return [correction_row_to_entity(row) for row in rows]
 
 
-def update_correction_status(correction_id: int, status: CorrectionStatus) -> QuestionCorrectionEntity:
+def update_correction_status(correction_id: int, question_id: int, new_status: CorrectionStatus) -> QuestionCorrectionEntity:
     with SessionLocal() as session:
         row = session.get(QuestionCorrectionRow, correction_id)
-        if row is None:
+        if row is None or row.question_id != question_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found"},
+                detail={"code": "CORRECTION_NOT_FOUND", "message": "Correction not found for this question"},
             )
-        row.status = status.value
+        row.status = new_status.value
         row.updated_at = now_utc()
         session.commit()
         session.refresh(row)
