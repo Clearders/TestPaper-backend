@@ -164,8 +164,17 @@ RATE_LIMIT_WINDOW_SECONDS=60
 RATE_LIMIT_WRITE_MAX_ATTEMPTS=30
 RATE_LIMIT_WRITE_WINDOW_SECONDS=60
 APP_ENV=development
-TRUSTED_HOSTS=*
+TRUSTED_HOSTS=localhost,127.0.0.1
 FORWARDED_ALLOW_IPS=127.0.0.1
+```
+
+In production (`APP_ENV=production`), `CORS_ORIGINS` and `TRUSTED_HOSTS` are required and must not contain `*`; the backend fails startup instead of silently allowing all origins or hosts. Example same-origin deployment values:
+
+```text
+APP_ENV=production
+CORS_ORIGINS=https://testpapers.example.com,http://testpapers.example.com
+TRUSTED_HOSTS=testpapers.example.com
+AUTH_COOKIE_SECURE=true
 ```
 
 ## API Overview
@@ -259,7 +268,7 @@ The `GET /api/v1/papers/{publicId}/download` endpoint generates a professional W
 - LaTeX formulas rendered inside the DOCX using Word-compatible OMML (Office Math Markup Language)
 - Question illustrations (PNG images) embedded inline
 - Two question ordering modes: `paper` (as arranged) or `categorized` (grouped by question type)
-- Configurable layout density: `auto` (detected from content), `compact`, or `spacious`
+- Configurable layout density: `auto` (detected from content), `normal`, `compact`, or `dense`
 - Answer key included when the user has the `answers:read` permission
 - Marks displayed per question in the document header
 
