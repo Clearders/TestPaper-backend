@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import binascii
 from datetime import timedelta
 from pathlib import Path
 
@@ -12,11 +10,17 @@ from sqlalchemy.exc import IntegrityError
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse, PasswordChange, ProfileUpdate, UserEntity
 from testpaper_backend.security import password_hash, user_row_to_entity, verify_password
+from testpaper_backend.services.png_uploads import PngUploadTarget, store_png_upload
 from testpaper_backend.time_utils import now_utc
 
 MAX_AVATAR_BYTES = 500 * 1024
-PNG_SIGNATURE = bytes((137, 80, 78, 71, 13, 10, 26, 10))
 AVATAR_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "avatars"
+AVATAR_UPLOAD = PngUploadTarget(
+    directory=AVATAR_UPLOAD_DIR,
+    public_path="/api/v1/avatars",
+    max_bytes=MAX_AVATAR_BYTES,
+    too_large_message="Avatar image must be 500KB or smaller",
+)
 
 
 def _user_not_found() -> HTTPException:
@@ -31,40 +35,7 @@ def _username_exists() -> HTTPException:
 
 
 def store_avatar(payload: ImageUploadPayload, user_public_id: str) -> ImageUploadResponse:
-    if payload.mimeType != "image/png":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "Only PNG images are supported"},
-        )
-
-    try:
-        image_bytes = base64.b64decode(payload.data, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "Image data must be valid base64"},
-        ) from exc
-
-    if len(image_bytes) > MAX_AVATAR_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail={"code": "PAYLOAD_TOO_LARGE", "message": "Avatar image must be 500KB or smaller"},
-        )
-
-    if not image_bytes.startswith(PNG_SIGNATURE):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "Image data must be a PNG file"},
-        )
-
-    AVATAR_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = f"{user_public_id}.png"
-    (AVATAR_UPLOAD_DIR / safe_name).write_bytes(image_bytes)
-    return ImageUploadResponse(
-        url=f"/api/v1/avatars/{safe_name}",
-        filename=safe_name,
-        mimeType=payload.mimeType,
-    )
+    return store_png_upload(payload, AVATAR_UPLOAD, user_public_id)
 
 
 def update_user_profile(user_id: int, payload: ProfileUpdate) -> UserEntity:

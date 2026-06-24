@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
@@ -70,11 +70,6 @@ def generate_paper(
 ):
     candidate_owner = current_user.id if payload.ownQuestionsOnly else None
     generated = generate_paper_with_genetic_algorithm(payload, owner_id=candidate_owner)
-    if not generated["paperQuestions"]:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "VALIDATION_ERROR", "message": "Paper must contain at least one question"},
-        )
     paper = generate_paper_from_result(payload, generated, owner_id=current_user.id)
     paper_payload = paper_with_questions(paper)
     background_tasks.add_task(

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 
-from fastapi import HTTPException, status
+from fastapi import status
 from sqlalchemy import ARRAY, String, select, type_coerce
 
+from testpaper_backend.core.errors import api_error, validation_error
 from testpaper_backend.db import QuestionRow, SessionLocal
 from testpaper_backend.repositories import normalize_question_type, question_row_to_entity
 from testpaper_backend.schemas import Difficulty, PaperGenerateRequest, QuestionEntity, QuestionRef, QuestionType
@@ -37,6 +38,8 @@ class GeneticAlgorithmOptions:
 def distribute_marks(questions: list[QuestionEntity], total_marks: int) -> list[int]:
     if not questions:
         return []
+    if total_marks < len(questions):
+        raise ValueError("total_marks must be at least the number of questions")
     weights = [max(0.01, question.scoreWeight) for question in questions]
     weight_total = sum(weights) or 1.0
     raw_marks = [max(1, total_marks * weight / weight_total) for weight in weights]
@@ -108,6 +111,11 @@ def normalize_targets[T](targets: dict[T, int], question_count: int) -> dict[T, 
     return normalized
 
 
+def generation_type_counts(payload: PaperGenerateRequest) -> dict[QuestionType, int]:
+    counts: dict[QuestionType, int] = {}
+    for target in payload.questionTypes:
+        counts[target.questionType] = counts.get(target.questionType, 0) + target.count
+    return counts
 
 
 # ---- Phase 1: Candidate Selection ----
@@ -116,7 +124,7 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
     subjects = [s.strip() for s in payload.subjects if s.strip()]
     if not subjects:
         raise ValueError("At least one subject is required")
-    selected_types = {t.questionType for t in payload.questionTypes}
+    selected_types = set(generation_type_counts(payload))
     statement = select(QuestionRow).where(
         QuestionRow.subjects.op('?|')(type_coerce(subjects, ARRAY(String))),
     )
@@ -136,17 +144,15 @@ def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | N
         subject_str = ", ".join(payload.subjects)
         source_message = " in your question bank" if owner_id is not None else ""
         type_names = ", ".join(t.value for t in selected_types)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least 1 question of types [{type_names}] for {subject_str}{source_message}, found 0.",
-                "details": {
-                    "subject": subject_str,
-                    "questionTypes": [t.value for t in selected_types],
-                    "candidateCount": 0,
-                    "ownQuestionsOnly": owner_id is not None,
-                },
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INSUFFICIENT_QUESTIONS",
+            f"Need at least 1 question of types [{type_names}] for {subject_str}{source_message}, found 0.",
+            {
+                "subject": subject_str,
+                "questionTypes": [t.value for t in selected_types],
+                "candidateCount": 0,
+                "ownQuestionsOnly": owner_id is not None,
             },
         )
     return candidates
@@ -241,6 +247,49 @@ def mutate_individual(individual: list[int], candidate_ids: list[int], mutation_
     return mutated
 
 
+def build_generation_result(
+    selected_questions: list[QuestionEntity],
+    *,
+    total_marks: int,
+    fitness: float,
+    candidate_count: int,
+    question_count: int,
+    owner_id: int | None,
+    difficulty_coefficient: float,
+    difficulty_targets: dict[Difficulty, int],
+    type_targets: dict[QuestionType, int],
+    type_adjustments: list[dict[str, Any]],
+    generations_run: int,
+    required_tags: set[str],
+    optional_tags: set[str],
+) -> dict[str, Any]:
+    marks = distribute_marks(selected_questions, total_marks)
+    return {
+        "paperQuestions": [
+            QuestionRef(questionPublicId=question.publicId, orderNo=index + 1, marks=marks[index])
+            for index, question in enumerate(selected_questions)
+        ],
+        "selectedQuestions": selected_questions,
+        "diagnostics": {
+            "fitness": round(fitness, 2),
+            "candidateCount": candidate_count,
+            "questionCount": question_count,
+            "ownQuestionsOnly": owner_id is not None,
+            "difficultyCoefficient": difficulty_coefficient,
+            "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
+            "marksActual": sum(marks),
+            "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
+            "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
+            "typeTargets": {key.value: value for key, value in type_targets.items()},
+            "typeActual": dict(Counter(question.type.value for question in selected_questions)),
+            "typeAdjustments": type_adjustments,
+            "generationsRun": generations_run,
+            "requiredTags": list(required_tags),
+            "preferredTags": list(optional_tags),
+        },
+    }
+
+
 # ---- Phase 3: Genetic Algorithm Loop ----
 
 def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_id: int | None = None) -> dict[str, Any]:
@@ -252,26 +301,26 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
     rng = random.Random(algorithm.randomSeed)
     type_targets: dict[QuestionType, int] = {}
     type_adjustments: list[dict[str, Any]] = []
-    for t in payload.questionTypes:
-        available = sum(1 for q in candidates if q.type == t.questionType)
-        target = min(t.count, available)
-        type_targets[t.questionType] = target
-        if target < t.count:
+    for question_type, requested_count in generation_type_counts(payload).items():
+        available = sum(1 for q in candidates if q.type == question_type)
+        target = min(requested_count, available)
+        type_targets[question_type] = target
+        if target < requested_count:
             type_adjustments.append({
-                "type": t.questionType.value,
-                "requested": t.count,
+                "type": question_type.value,
+                "requested": requested_count,
                 "available": available,
                 "adjusted": target,
             })
     question_count = sum(type_targets.values())
     if len(candidates) < question_count:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "INSUFFICIENT_QUESTIONS",
-                "message": f"Need at least {question_count} candidate questions, found {len(candidates)}.",
-            },
+        raise api_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INSUFFICIENT_QUESTIONS",
+            f"Need at least {question_count} candidate questions, found {len(candidates)}.",
         )
+    if payload.totalMarks < question_count:
+        raise validation_error("totalMarks must be at least the number of selected questions")
     difficulty_targets = difficulty_targets_from_coefficient(payload.difficultyCoefficient, question_count)
     required_tags: set[str] = {tag.lower().strip() for tag in (payload.requiredTags or []) if tag and tag.strip()}
     optional_tags: set[str] = {tag.lower().strip() for tag in (payload.preferredTags or []) if tag and tag.strip()} - required_tags
@@ -281,31 +330,22 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
 
     if len(candidates) == question_count:
         selected_questions = candidates
-        marks = distribute_marks(selected_questions, payload.totalMarks)
-        return {
-            "paperQuestions": [
-                QuestionRef(questionPublicId=question.publicId, orderNo=index + 1, marks=marks[index])
-                for index, question in enumerate(selected_questions)
-            ],
-            "selectedQuestions": selected_questions,
-            "diagnostics": {
-                "fitness": 1000,
-                "candidateCount": len(candidates),
-                "questionCount": question_count,
-                "ownQuestionsOnly": owner_id is not None,
-                "difficultyCoefficient": payload.difficultyCoefficient,
-                "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
-                "marksActual": sum(marks),
-                "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
-                "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
-                "typeTargets": {key.value: value for key, value in type_targets.items()},
-                "typeActual": dict(Counter(question.type.value for question in selected_questions)),
-                "typeAdjustments": type_adjustments,
-                "generationsRun": 0,
-                "requiredTags": list(required_tags),
-                "preferredTags": list(optional_tags),
-            },
-        }
+        result = build_generation_result(
+            selected_questions,
+            total_marks=payload.totalMarks,
+            fitness=1000,
+            candidate_count=len(candidates),
+            question_count=question_count,
+            owner_id=owner_id,
+            difficulty_coefficient=payload.difficultyCoefficient,
+            difficulty_targets=difficulty_targets,
+            type_targets=type_targets,
+            type_adjustments=type_adjustments,
+            generations_run=0,
+            required_tags=required_tags,
+            optional_tags=optional_tags,
+        )
+        return result
 
     population = [rng.sample(candidate_ids, question_count) for _ in range(population_size)]
     best = population[0]
@@ -353,30 +393,19 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         population = next_population
 
     selected_questions = [question_by_id[question_id] for question_id in best]
-    marks = distribute_marks(selected_questions, payload.totalMarks)
-    paper_questions = [
-        QuestionRef(questionPublicId=question.publicId, orderNo=index + 1, marks=marks[index])
-        for index, question in enumerate(selected_questions)
-    ]
-    diagnostics = {
-        "fitness": round(best_score, 2),
-        "candidateCount": len(candidates),
-        "questionCount": question_count,
-        "ownQuestionsOnly": owner_id is not None,
-        "difficultyCoefficient": payload.difficultyCoefficient,
-        "scoreWeightActual": round(sum(max(0.01, question.scoreWeight) for question in selected_questions), 2),
-        "marksActual": sum(marks),
-        "difficultyTargets": {key.value: value for key, value in difficulty_targets.items()},
-        "difficultyActual": dict(Counter(question.difficulty.value for question in selected_questions)),
-        "typeTargets": {key.value: value for key, value in type_targets.items()},
-        "typeActual": dict(Counter(question.type.value for question in selected_questions)),
-        "typeAdjustments": type_adjustments,
-        "generationsRun": generations_run,
-        "requiredTags": list(required_tags),
-        "preferredTags": list(optional_tags),
-    }
-    return {
-        "paperQuestions": paper_questions,
-        "selectedQuestions": selected_questions,
-        "diagnostics": diagnostics,
-    }
+    result = build_generation_result(
+        selected_questions,
+        total_marks=payload.totalMarks,
+        fitness=best_score,
+        candidate_count=len(candidates),
+        question_count=question_count,
+        owner_id=owner_id,
+        difficulty_coefficient=payload.difficultyCoefficient,
+        difficulty_targets=difficulty_targets,
+        type_targets=type_targets,
+        type_adjustments=type_adjustments,
+        generations_run=generations_run,
+        required_tags=required_tags,
+        optional_tags=optional_tags,
+    )
+    return result
