@@ -14,6 +14,7 @@ from testpaper_backend.schemas import (
     LayoutDensity,
     PaperCreate,
     PaperEntity,
+    PaperExpandedEntity,
     PaperGenerateRequest,
     PaperUpdate,
     QuestionOrder,
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
 
 
-@router.post("", response_model=Envelope[PaperEntity], status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Envelope[PaperExpandedEntity], status_code=status.HTTP_201_CREATED)
 def create_paper(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -87,7 +88,7 @@ def generate_paper(
     )
 
 
-@router.get("/{paper_public_id}", response_model=Envelope[PaperEntity])
+@router.get("/{paper_public_id}", response_model=Envelope[PaperExpandedEntity | PaperEntity])
 def get_paper(
     request: Request,
     paper_public_id: str,
@@ -121,7 +122,7 @@ def update_paper(
     return envelope(updated.model_dump(mode="json"), request)
 
 
-@router.post("/{paper_public_id}/questions", response_model=Envelope[PaperEntity])
+@router.post("/{paper_public_id}/questions", response_model=Envelope[PaperExpandedEntity])
 def add_paper_questions(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -138,7 +139,7 @@ def add_paper_questions(
     return envelope(paper_with_questions(updated), request)
 
 
-@router.delete("/{paper_public_id}/questions/{question_public_id}", response_model=Envelope[PaperEntity])
+@router.delete("/{paper_public_id}/questions/{question_public_id}", response_model=Envelope[PaperExpandedEntity])
 def remove_paper_question(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -163,7 +164,7 @@ def remove_paper_question(
     return envelope(paper_with_questions(updated), request)
 
 
-@router.put("/{paper_public_id}/questions/order", response_model=Envelope[PaperEntity])
+@router.put("/{paper_public_id}/questions/order", response_model=Envelope[PaperExpandedEntity])
 def reorder_paper_questions(
     request: Request,
     background_tasks: BackgroundTasks,

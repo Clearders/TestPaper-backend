@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from testpaper_backend.api.routes import papers as paper_routes
 from testpaper_backend.api.routes import questions as question_routes
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts
 from testpaper_backend.core.csrf import CSRFMiddleware
@@ -19,12 +20,15 @@ from testpaper_backend.schemas import (
     CorrectionCategory,
     CorrectionStatus,
     Difficulty,
+    PaperEntity,
     PaperGenerateRequest,
     PasswordChange,
     ProfileUpdate,
     QuestionCorrectionCreate,
     QuestionCorrectionUpdate,
     QuestionCreate,
+    QuestionRef,
+    QuestionRevisionEntity,
     QuestionType,
     QuestionUpdate,
     RegisterRequest,
@@ -32,7 +36,7 @@ from testpaper_backend.schemas import (
     UserRole,
     UserUpdate,
 )
-from testpaper_backend.security import password_hash
+from testpaper_backend.security import get_current_user, password_hash
 from testpaper_backend.services import rate_limit, task_access
 from testpaper_backend.services.profiles import change_user_password, update_user_profile
 from testpaper_backend.services.questions import (
@@ -389,6 +393,102 @@ def test_delete_question_correction_route_rejects_non_owner(monkeypatch) -> None
         question_routes.delete_question_correction("question-123", 77, teacher, None)
 
     assert exc_info.value.status_code == 403
+
+
+def test_question_revisions_redact_answers_for_viewers(monkeypatch) -> None:
+    question = SimpleNamespace(id=123, publicId="question-123")
+    revision = QuestionRevisionEntity(
+        id=1,
+        questionId=question.id,
+        userId=9,
+        patch={"text": "Updated prompt", "answer": "secret-answer"},
+        changeSummary="Updated text, answer",
+        createdAt=datetime(2026, 6, 14, tzinfo=UTC),
+    )
+    monkeypatch.setattr(question_routes, "get_question_or_404", lambda public_id: question)
+    monkeypatch.setattr(question_routes, "list_revisions", lambda question_id: [revision])
+
+    viewer_response = question_routes.get_question_revisions(
+        _request("/api/v1/questions/question-123/revisions"),
+        "question-123",
+        _user(11, UserRole.viewer),
+    )
+    teacher_response = question_routes.get_question_revisions(
+        _request("/api/v1/questions/question-123/revisions"),
+        "question-123",
+        _user(12, UserRole.teacher),
+    )
+
+    assert viewer_response["data"][0]["patch"]["answer"] == question_routes.REDACTED_REVISION_ANSWER
+    assert viewer_response["data"][0]["patch"]["text"] == "Updated prompt"
+    assert teacher_response["data"][0]["patch"]["answer"] == "secret-answer"
+
+
+def test_expanded_paper_route_preserves_question_fields_and_answer_gate(monkeypatch) -> None:
+    viewer = _user(13, UserRole.viewer)
+    paper = PaperEntity(
+        id=1,
+        publicId="paper-1",
+        title="Expanded Paper",
+        subject="Math",
+        duration=60,
+        totalMarks=100,
+        questions=[QuestionRef(questionPublicId="question-1", orderNo=1, marks=5)],
+        createdAt=datetime(2026, 6, 14, tzinfo=UTC),
+        updatedAt=datetime(2026, 6, 14, tzinfo=UTC),
+        ownerId=viewer.id,
+    )
+    include_answer_calls: list[bool] = []
+
+    def fake_paper_with_questions(paper_arg, include_answer=True):
+        include_answer_calls.append(include_answer)
+        payload = paper_arg.model_dump(mode="json")
+        payload["questions"] = [{
+            "id": 10,
+            "publicId": "question-1",
+            "questionPublicId": "question-1",
+            "orderNo": 1,
+            "marks": 5,
+            "type": "single_choice",
+            "subjects": ["Math"],
+            "difficulty": "easy",
+            "tags": ["algebra"],
+            "text": "2 + 2 = ?",
+            "options": ["3", "4"],
+            "answer": "4" if include_answer else "",
+            "hasLatex": False,
+            "source": "unit-test",
+            "images": [],
+            "scoreWeight": 1.0,
+            "ownerId": viewer.id,
+            "createdAt": "2026-06-14T00:00:00Z",
+            "updatedAt": "2026-06-14T00:00:00Z",
+        }]
+        return payload
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def request_id_middleware(request, call_next):
+        request.state.request_id = "test-request"
+        return await call_next(request)
+
+    app.dependency_overrides[get_current_user] = lambda: viewer
+    app.include_router(paper_routes.router)
+    monkeypatch.setattr(paper_routes, "get_paper_or_404", lambda public_id: paper)
+    monkeypatch.setattr(paper_routes, "paper_with_questions", fake_paper_with_questions)
+
+    response = TestClient(app).get("/api/v1/papers/paper-1?expand=questions&includeAnswer=true")
+
+    assert response.status_code == 200
+    question = response.json()["data"]["questions"][0]
+    assert include_answer_calls == [False]
+    assert question["text"] == "2 + 2 = ?"
+    assert question["type"] == "single_choice"
+    assert question["options"] == ["3", "4"]
+    assert question["answer"] == ""
+    assert question["questionPublicId"] == "question-1"
+    assert question["marks"] == 5
 
 
 def test_recent_username_change_is_rejected_in_profile_service(monkeypatch) -> None:

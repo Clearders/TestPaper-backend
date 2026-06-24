@@ -43,6 +43,7 @@ from testpaper_backend.services.realtime import realtime
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/questions", tags=["questions"])
+REDACTED_REVISION_ANSWER = "[redacted]"
 
 
 def _list_question_page(
@@ -78,6 +79,14 @@ def _list_question_page(
     )
     page_data["items"] = [question_to_dict(item, include_answer=include_answer and can_read_answers) for item in page_data["items"]]
     return page_data
+
+
+def _revision_payload(revision: QuestionRevisionEntity, *, include_answer: bool) -> dict[str, Any]:
+    payload = revision.model_dump(mode="json")
+    patch = payload.get("patch")
+    if not include_answer and isinstance(patch, dict) and "answer" in patch:
+        patch["answer"] = REDACTED_REVISION_ANSWER
+    return payload
 
 
 @router.get("", response_model=Envelope[PaginatedResponse[QuestionEntity]])
@@ -225,7 +234,10 @@ def get_question_revisions(
 ):
     question = get_question_or_404(question_public_id)
     revisions = list_revisions(question.id)
-    return envelope([rev.model_dump(mode="json") for rev in revisions], request)
+    return envelope(
+        [_revision_payload(rev, include_answer=has_permission(current_user, "answers:read")) for rev in revisions],
+        request,
+    )
 
 
 @router.post("/{question_public_id}/corrections", response_model=Envelope[QuestionCorrectionEntity], status_code=status.HTTP_201_CREATED)

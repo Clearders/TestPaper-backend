@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from testpaper_backend.schemas.question import QuestionRef, QuestionType
+from testpaper_backend.schemas.question import QuestionEntity, QuestionRef, QuestionType
 
 
 class PaperStatus(StrEnum):
@@ -76,6 +76,21 @@ class PaperEntity(PaperBase):
     id: int
     publicId: str
     questions: list[QuestionRef]
+    status: PaperStatus = PaperStatus.draft
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class PaperQuestionEntity(QuestionEntity):
+    questionPublicId: str
+    orderNo: int
+    marks: int | None = None
+
+
+class PaperExpandedEntity(PaperBase):
+    id: int
+    publicId: str
+    questions: list[PaperQuestionEntity]
     status: PaperStatus = PaperStatus.draft
     createdAt: datetime
     updatedAt: datetime
