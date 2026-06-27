@@ -69,7 +69,7 @@ TestPaper-backend/
         meta.py                  # Subjects and tags metadata
         tasks.py                 # Celery task dispatch and polling
         health.py                # PostgreSQL and Redis health checks
-        websocket.py             # Authenticated realtime WebSocket (CORS + query-param token)
+        websocket.py             # Authenticated realtime WebSocket (Cookie or Bearer token)
         root.py                  # Service info endpoint
     core/
       factory.py                 # FastAPI factory with CORS, CSRF, and TrustedHost middleware
@@ -207,6 +207,13 @@ All application routes are under `/api/v1`. For the full API specification, see 
 - Refresh rotates the token (old token deleted, new token issued)
 - Login and register endpoints are rate-limited (configurable via `RATE_LIMIT_*` env vars)
 - Write operations are rate-limited separately (configurable via `RATE_LIMIT_WRITE_*` env vars)
+
+## Security Headers
+
+- Backend API responses emit a restrictive CSP for JSON/API surfaces: scripts, styles, connections, forms, workers, and frames are limited to `'self'`; objects are disabled.
+- The backend CSP does not allow `'unsafe-inline'`, `ws:`, `wss:`, or CDN hosts. Browser WebSocket access is controlled by the frontend CSP and should use exact `wss://...` origins only when the same-origin `/api/v1/ws` route is not enough.
+- The Nuxt frontend emits the per-request nonce-based SSR CSP. Do not replace it at the proxy/backend layer with a static `Content-Security-Policy` header.
+- Production enables HSTS only when `APP_ENV=production` and `AUTH_COOKIE_SECURE=true`.
 
 ## User Profile Features
 

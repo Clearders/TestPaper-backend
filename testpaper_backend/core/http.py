@@ -13,6 +13,21 @@ from testpaper_backend.core.responses import error_envelope
 
 logger = logging.getLogger(__name__)
 
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "script-src-attr 'none'; "
+    "style-src 'self'; "
+    "font-src 'self' data:; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "object-src 'none'; "
+    "worker-src 'self'"
+)
+
 
 def register_request_id_middleware(app: FastAPI) -> None:
     @app.middleware("http")
@@ -31,17 +46,7 @@ def register_security_headers(app: FastAPI) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "font-src 'self' https://cdn.jsdelivr.net data:; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' ws: wss:; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'"
-        )
+        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
         if is_production() and get_auth_cookie_secure():
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response

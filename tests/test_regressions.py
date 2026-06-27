@@ -213,6 +213,34 @@ def test_hsts_requires_secure_production_cookie(monkeypatch) -> None:
     assert client.get("/").headers["strict-transport-security"].startswith("max-age=")
 
 
+def test_content_security_policy_is_hardened_for_api_responses() -> None:
+    from testpaper_backend.application import app
+
+    csp = TestClient(app).get("/").headers["content-security-policy"]
+    directives = {
+        parts[0]: parts[1:]
+        for directive in csp.split(";")
+        if (parts := directive.strip().split())
+    }
+
+    assert directives == {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "script-src-attr": ["'none'"],
+        "style-src": ["'self'"],
+        "font-src": ["'self'", "data:"],
+        "img-src": ["'self'", "data:", "blob:"],
+        "connect-src": ["'self'"],
+        "frame-ancestors": ["'none'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'self'"],
+        "object-src": ["'none'"],
+        "worker-src": ["'self'"],
+    }
+    for forbidden_source in ("'unsafe-inline'", "ws:", "wss:", "https://cdn.jsdelivr.net"):
+        assert forbidden_source not in csp
+
+
 def test_admin_update_preserves_owner_unless_explicit(monkeypatch) -> None:
     admin = _user(1, UserRole.admin)
     omitted = QuestionUpdate(text="Updated")
