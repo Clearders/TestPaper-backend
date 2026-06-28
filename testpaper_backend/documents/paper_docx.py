@@ -1,8 +1,6 @@
 ﻿# ruff: noqa: RUF001
 from __future__ import annotations
 
-import base64
-import binascii
 import re
 import struct
 import zipfile
@@ -10,9 +8,9 @@ from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
 from xml.sax.saxutils import escape
 
+from testpaper_backend.question_images import QUESTION_IMAGE_PATH_PREFIX, normalize_question_image_url
 from testpaper_backend.schemas import PaperEntity
 from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 
@@ -1143,16 +1141,9 @@ def _image_paragraph(relationship_id: str, image_index: int, image_bytes: bytes)
 
 
 def _add_image_relationship(url: str, images: list[tuple[str, bytes]], relationships: list[str]) -> str | None:
-    prefix = "data:image/png;base64,"
-    if url.startswith(prefix):
-        try:
-            image_bytes = base64.b64decode(url[len(prefix):], validate=True)
-        except (binascii.Error, ValueError):
-            return None
-    else:
-        image_bytes = _read_uploaded_image(url)
-        if image_bytes is None:
-            return None
+    image_bytes = _read_uploaded_image(url)
+    if image_bytes is None:
+        return None
 
     images.append((url, image_bytes))
     relationship_id = f"rIdImage{len(images)}"
@@ -1165,16 +1156,11 @@ def _add_image_relationship(url: str, images: list[tuple[str, bytes]], relations
 
 
 def _read_uploaded_image(url: str) -> bytes | None:
-    parsed = urlsplit(url)
-    path = unquote(parsed.path or url)
-    prefix = "/api/v1/images/files/"
-    if not path.startswith(prefix):
+    normalized_url = normalize_question_image_url(url)
+    if normalized_url is None:
         return None
 
-    filename = Path(path[len(prefix):]).name
-    if not filename.lower().endswith(".png"):
-        return None
-
+    filename = normalized_url[len(QUESTION_IMAGE_PATH_PREFIX) :]
     image_path = IMAGE_UPLOAD_DIR / filename
     if not image_path.is_file():
         return None

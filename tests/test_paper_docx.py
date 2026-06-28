@@ -113,7 +113,7 @@ def test_resolve_layout_density_reports_effective_auto_choice() -> None:
     assert resolve_layout_density(questions, "auto", template_path=Path("missing-template.docx")) == "normal"
 
 
-def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
+def test_default_template_skips_inline_data_image_urls() -> None:
     png = (
         "data:image/png;base64,"
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -138,6 +138,10 @@ def test_default_template_with_image_has_bound_drawing_namespaces() -> None:
     )
 
     document_xml = _document_xml(docx)
+    with zipfile.ZipFile(BytesIO(docx), "r") as archive:
+        assert not any(name.startswith("word/media/") for name in archive.namelist())
+        relationships_xml = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+        assert "relationships/image" not in relationships_xml
 
     root = ET.fromstring(document_xml)
     namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}

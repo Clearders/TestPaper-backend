@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 def login(request: Request, response: Response, payload: LoginRequest, _: RateLimitLoginDep):
     token, auth_session = authenticate_user(payload)
     set_auth_cookie(response, token, auth_session.expiresAt)
-    set_csrf_cookie(response, generate_csrf_token())
+    set_csrf_cookie(response, generate_csrf_token(), auth_session.expiresAt)
     return envelope(auth_session.model_dump(mode="json"), request)
 
 
@@ -46,7 +46,7 @@ def login(request: Request, response: Response, payload: LoginRequest, _: RateLi
 def register(request: Request, response: Response, payload: RegisterRequest, _: RateLimitRegisterDep):
     token, auth_session = register_user(payload)
     set_auth_cookie(response, token, auth_session.expiresAt)
-    set_csrf_cookie(response, generate_csrf_token())
+    set_csrf_cookie(response, generate_csrf_token(), auth_session.expiresAt)
     return envelope(auth_session.model_dump(mode="json"), request)
 
 
@@ -59,6 +59,7 @@ def get_me(request: Request, current_user: CurrentUserDep):
 def refresh_session(request: Request, response: Response):
     token, auth_session = refresh_auth_session(get_request_token(request))
     set_auth_cookie(response, token, auth_session.expiresAt)
+    set_csrf_cookie(response, generate_csrf_token(), auth_session.expiresAt)
     return envelope(auth_session.model_dump(mode="json"), request)
 
 

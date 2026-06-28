@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime
 
 from fastapi import Request, Response, status
 from starlette.responses import JSONResponse
@@ -12,6 +13,7 @@ from testpaper_backend.config import (
     get_auth_cookie_secure,
     get_csrf_cookie_name,
 )
+from testpaper_backend.time_utils import now_utc
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -20,10 +22,13 @@ def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def set_csrf_cookie(response: Response, token: str) -> None:
+def set_csrf_cookie(response: Response, token: str, expires_at: datetime) -> None:
+    max_age = max(0, int((expires_at - now_utc()).total_seconds()))
     response.set_cookie(
         key=get_csrf_cookie_name(),
         value=token,
+        max_age=max_age,
+        expires=expires_at,
         path="/",
         domain=get_auth_cookie_domain(),
         secure=get_auth_cookie_secure(),

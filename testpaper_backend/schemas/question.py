@@ -4,7 +4,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from testpaper_backend.question_images import normalize_question_image_url
 
 
 class QuestionType(StrEnum):
@@ -48,6 +50,14 @@ class EssayBlankSpace(BaseModel):
 class QuestionImage(BaseModel):
     url: str = Field(min_length=1)
     caption: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_question_image_url(cls, value: str) -> str:
+        normalized = normalize_question_image_url(value)
+        if normalized is None:
+            raise ValueError("Question images must use backend-uploaded PNG URLs")
+        return normalized
 
 
 class QuestionBase(BaseModel):

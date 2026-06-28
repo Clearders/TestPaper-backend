@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from testpaper_backend.db import PaperQuestionRow, PaperRow, QuestionRevisionRow, QuestionRow, SessionLocal
+from testpaper_backend.question_images import normalize_question_image_url
 from testpaper_backend.schemas import (
     Difficulty,
     EssayBlankSpace,
@@ -100,6 +101,21 @@ def has_latex(value: QuestionBase | dict[str, Any]) -> bool:
     return bool(re.search(r"(\$\$[^$]+\$\$|\$[^$]+\$)", f"{text}{answer}{options_text}"))
 
 
+def _question_images_from_row(images: Any) -> list[QuestionImage]:
+    normalized_images: list[QuestionImage] = []
+    for image in images or []:
+        if not isinstance(image, dict):
+            continue
+        normalized_url = normalize_question_image_url(str(image.get("url") or ""))
+        if normalized_url is None:
+            continue
+        try:
+            normalized_images.append(QuestionImage(**{**image, "url": normalized_url}))
+        except ValueError:
+            continue
+    return normalized_images
+
+
 def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
     return QuestionEntity(
         id=row.id,
@@ -114,7 +130,7 @@ def question_row_to_entity(row: QuestionRow) -> QuestionEntity:
         hasLatex=row.has_latex,
         source=row.source,
         essayBlankSpace=EssayBlankSpace(**row.essay_blank_space) if row.essay_blank_space is not None else None,
-        images=[QuestionImage(**img) for img in (row.images or [])],
+        images=_question_images_from_row(row.images),
         scoreWeight=row.score_weight,
         ownerId=row.owner_id,
         createdAt=row.created_at,

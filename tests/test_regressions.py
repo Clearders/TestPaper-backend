@@ -1,22 +1,25 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from testpaper_backend.api.routes import auth as auth_routes
 from testpaper_backend.api.routes import papers as paper_routes
 from testpaper_backend.api.routes import questions as question_routes
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts
-from testpaper_backend.core.csrf import CSRFMiddleware
+from testpaper_backend.core.csrf import CSRFMiddleware, set_csrf_cookie
 from testpaper_backend.core.factory import create_app
 from testpaper_backend.core.lifespan import lifespan
+from testpaper_backend.repositories import question_row_to_entity
 from testpaper_backend.schemas import (
     ROLE_PERMISSIONS,
+    AuthSession,
     CorrectionCategory,
     CorrectionStatus,
     Difficulty,
@@ -63,6 +66,13 @@ def _user(user_id: int, role: UserRole) -> UserEntity:
         isActive=True,
         createdAt=now,
         updatedAt=now,
+    )
+
+
+def _auth_session(expires_at: datetime | None = None) -> AuthSession:
+    return AuthSession(
+        expiresAt=expires_at or datetime(2026, 6, 15, tzinfo=UTC),
+        user=_user(1, UserRole.viewer),
     )
 
 
@@ -115,6 +125,123 @@ def test_question_normalization_is_consistent() -> None:
     assert question.tags == ["algebra"]
     assert question.text == "Select all"
     assert question.answer == ["A"]
+
+
+def test_set_csrf_cookie_uses_auth_session_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
+    expires_at = now + timedelta(hours=2)
+    monkeypatch.setattr("testpaper_backend.core.csrf.now_utc", lambda: now)
+
+    response = Response()
+    set_csrf_cookie(response, "csrf-token", expires_at)
+
+    cookie_header = response.headers["set-cookie"].lower()
+    assert "max-age=7200" in cookie_header
+    assert "expires=" in cookie_header
+
+
+def test_auth_routes_refresh_csrf_cookie_with_auth_session_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    expires_at = datetime(2026, 6, 15, tzinfo=UTC)
+    session = _auth_session(expires_at)
+    auth_cookie_calls: list[tuple[str, datetime]] = []
+    csrf_cookie_calls: list[tuple[str, datetime]] = []
+
+    def fake_set_auth_cookie(response: Response, token: str, cookie_expires_at: datetime) -> None:
+        auth_cookie_calls.append((token, cookie_expires_at))
+
+    def fake_set_csrf_cookie(response: Response, token: str, cookie_expires_at: datetime) -> None:
+        csrf_cookie_calls.append((token, cookie_expires_at))
+
+    monkeypatch.setattr(auth_routes, "authenticate_user", lambda payload: ("login-token", session))
+    monkeypatch.setattr(auth_routes, "register_user", lambda payload: ("register-token", session))
+    monkeypatch.setattr(auth_routes, "refresh_auth_session", lambda token: ("refresh-token", session))
+    monkeypatch.setattr(auth_routes, "get_request_token", lambda request: "old-token")
+    monkeypatch.setattr(auth_routes, "generate_csrf_token", lambda: "csrf-token")
+    monkeypatch.setattr(auth_routes, "set_auth_cookie", fake_set_auth_cookie)
+    monkeypatch.setattr(auth_routes, "set_csrf_cookie", fake_set_csrf_cookie)
+
+    auth_routes.login(_request("/api/v1/auth/login"), Response(), SimpleNamespace(), None)
+    auth_routes.register(_request("/api/v1/auth/register"), Response(), SimpleNamespace(), None)
+    auth_routes.refresh_session(_request("/api/v1/auth/refresh"), Response())
+
+    assert auth_cookie_calls == [
+        ("login-token", expires_at),
+        ("register-token", expires_at),
+        ("refresh-token", expires_at),
+    ]
+    assert csrf_cookie_calls == [
+        ("csrf-token", expires_at),
+        ("csrf-token", expires_at),
+        ("csrf-token", expires_at),
+    ]
+
+
+def test_question_images_require_backend_uploaded_png_paths() -> None:
+    image_path = f"/api/v1/images/files/{'a' * 32}.png"
+    question = QuestionCreate(
+        type=QuestionType.single_choice,
+        subjects=["Math"],
+        difficulty=Difficulty.easy,
+        text="Question",
+        options=["A", "B"],
+        answer="A",
+        images=[{"url": image_path, "caption": "Figure 1"}],
+    )
+    assert question.images[0].url == image_path
+
+    update = QuestionUpdate(images=[{"url": f"https://example.test{image_path}?cache=1"}])
+    assert update.images is not None
+    assert update.images[0].url == image_path
+
+    for bad_url in (
+        "data:image/png;base64,AAAA",
+        "https://example.test/uploads/question.png",
+        "/api/v1/images/files/not-a-question-image.png",
+    ):
+        with pytest.raises(ValidationError):
+            QuestionCreate(
+                type=QuestionType.single_choice,
+                subjects=["Math"],
+                difficulty=Difficulty.easy,
+                text="Question",
+                options=["A", "B"],
+                answer="A",
+                images=[{"url": bad_url}],
+            )
+        with pytest.raises(ValidationError):
+            QuestionUpdate(images=[{"url": bad_url}])
+
+
+def test_question_row_to_entity_filters_invalid_legacy_question_images() -> None:
+    now = datetime(2026, 6, 14, tzinfo=UTC)
+    image_path = f"/api/v1/images/files/{'b' * 32}.png"
+    row = SimpleNamespace(
+        id=1,
+        public_id="question-1",
+        type=QuestionType.single_choice.value,
+        subjects=["Math"],
+        difficulty=Difficulty.easy.value,
+        tags=[],
+        text="Question",
+        options=["A", "B"],
+        answer="A",
+        has_latex=False,
+        source=None,
+        essay_blank_space=None,
+        images=[
+            {"url": "data:image/png;base64,AAAA", "caption": "Legacy inline"},
+            {"url": "https://example.test/uploads/question.png", "caption": "External"},
+            {"url": image_path, "caption": "Uploaded"},
+        ],
+        score_weight=1.0,
+        owner_id=1,
+        created_at=now,
+        updated_at=now,
+    )
+
+    entity = question_row_to_entity(row)
+
+    assert [(image.url, image.caption) for image in entity.images] == [(image_path, "Uploaded")]
 
 
 def test_generation_rejects_subjects_that_normalize_to_empty() -> None:
