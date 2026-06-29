@@ -142,6 +142,11 @@ def paper_with_questions(paper: PaperEntity, include_answer: bool = True) -> dic
 
 def build_export_questions(paper: PaperEntity, question_order: QuestionOrder, include_answer: bool) -> list[dict[str, Any]]:
     ordered_questions = paper_with_questions(paper, include_answer=include_answer)["questions"]
+    return order_export_questions(ordered_questions, question_order)
+
+
+def order_export_questions(ordered_questions: list[dict[str, Any]], question_order: QuestionOrder) -> list[dict[str, Any]]:
+    ordered_questions = sorted(ordered_questions, key=lambda item: item.get("orderNo", 0))
     if question_order == QuestionOrder.paper:
         return ordered_questions
 

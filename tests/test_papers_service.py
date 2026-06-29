@@ -64,6 +64,20 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
     assert [question["id"] for question in categorized] == [2, 4, 5, 3, 1]
 
 
+def test_order_export_questions_groups_draft_snapshots_by_type() -> None:
+    draft_questions = [
+        {"id": 1, "orderNo": 1, "type": "essay", "text": "essay"},
+        {"id": 2, "orderNo": 2, "type": "single_choice", "text": "choice"},
+        {"id": 3, "orderNo": 3, "type": "blank", "text": "blank"},
+    ]
+
+    paper_order = papers.order_export_questions(draft_questions, QuestionOrder.paper)
+    categorized = papers.order_export_questions(draft_questions, QuestionOrder.categorized)
+
+    assert [question["id"] for question in paper_order] == [1, 2, 3]
+    assert [question["id"] for question in categorized] == [2, 3, 1]
+
+
 def test_replace_paper_question_refs_updates_existing_paper_without_duplicate(monkeypatch) -> None:
     questions = {
         "q-1": _question(1, QuestionType.single_choice, "choice first"),
@@ -91,7 +105,7 @@ def test_replace_paper_question_refs_updates_existing_paper_without_duplicate(mo
             raise AssertionError("editing an existing draft must not create a new paper")
 
     monkeypatch.setattr(papers, "PAPERS", FakePaperStore())
-    monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(get_by_public_id=questions.get))
+    monkeypatch.setattr(papers, "get_question_or_404", questions.get)
 
     updated = papers.replace_paper_question_refs(
         stored_papers[1],

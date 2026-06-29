@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
@@ -13,6 +14,7 @@ from testpaper_backend.schemas import (
     ExportPreviewRequest,
     LayoutDensity,
     PaperCreate,
+    PaperDraftDownloadRequest,
     PaperEntity,
     PaperExpandedEntity,
     PaperGenerateRequest,
@@ -29,10 +31,11 @@ from testpaper_backend.services.papers import (
     build_export_questions,
     ensure_paper_owner_access,
     get_paper_or_404,
+    order_export_questions,
     paper_with_questions,
     remove_question_from_paper,
-    replace_paper_question_refs,
     reorder_paper_question_refs,
+    replace_paper_question_refs,
     update_paper_metadata,
     validate_unique_question_refs,
 )
@@ -86,6 +89,40 @@ def generate_paper(
             "diagnostics": generated["diagnostics"],
         },
         request,
+    )
+
+
+@router.post("/draft-download")
+def download_draft_paper(
+    payload: PaperDraftDownloadRequest,
+    current_user: PapersReadDep,
+):
+    include_answer = payload.includeAnswer and has_permission(current_user, "answers:read")
+    questions = [question.model_dump(mode="json", exclude_none=True) for question in payload.questions]
+    if not include_answer:
+        for question in questions:
+            question.pop("answer", None)
+    questions = order_export_questions(questions, payload.questionOrder)
+    paper = SimpleNamespace(
+        title=payload.title,
+        subject=payload.subject,
+        duration=payload.duration,
+        totalMarks=payload.totalMarks,
+    )
+    effective_layout_density = resolve_layout_density(questions, payload.layoutDensity)
+    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=payload.layoutDensity)
+    filename = docx_filename(payload.title)
+    ascii_filename = docx_filename(payload.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+
+    return Response(
+        content=file_bytes,
+        media_type=DOCX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
+            "X-Export-Format": "docx",
+            "X-Layout-Density": effective_layout_density,
+            "X-Draft-Export": "true",
+        },
     )
 
 

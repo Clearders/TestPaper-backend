@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import zipfile
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -644,6 +646,50 @@ def test_expanded_paper_route_preserves_question_fields_and_answer_gate(monkeypa
     assert question["answer"] == ""
     assert question["questionPublicId"] == "question-1"
     assert question["marks"] == 5
+
+
+def test_draft_download_uses_submitted_question_snapshot() -> None:
+    teacher = _user(14, UserRole.teacher)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: teacher
+    app.include_router(paper_routes.router)
+
+    response = TestClient(app).post(
+        "/api/v1/papers/draft-download",
+        json={
+            "title": "Draft Export",
+            "subject": "Math",
+            "duration": 60,
+            "totalMarks": 10,
+            "includeAnswer": True,
+            "questionOrder": "paper",
+            "layoutDensity": "normal",
+            "questions": [
+                {
+                    "questionPublicId": "question-1",
+                    "orderNo": 1,
+                    "marks": 10,
+                    "type": "single_choice",
+                    "subjects": ["Math"],
+                    "difficulty": "medium",
+                    "tags": ["edited"],
+                    "text": "Edited local wording",
+                    "options": ["A", "B"],
+                    "answer": "Edited answer",
+                    "hasLatex": False,
+                    "scoreWeight": 1,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-draft-export"] == "true"
+    assert response.content.startswith(b"PK\x03\x04")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Edited local wording" in document_xml
+    assert "Edited answer" in document_xml
 
 
 def test_recent_username_change_is_rejected_in_profile_service(monkeypatch) -> None:

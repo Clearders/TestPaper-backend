@@ -29,6 +29,8 @@ from testpaper_backend.schemas.paper import (
     LayoutDensity,
     PaperBase,
     PaperCreate,
+    PaperDraftDownloadRequest,
+    PaperDraftQuestion,
     PaperEntity,
     PaperExpandedEntity,
     PaperGenerateRequest,

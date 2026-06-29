@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from testpaper_backend.schemas.question import QuestionEntity, QuestionRef, QuestionType
+from testpaper_backend.schemas.question import Difficulty, EssayBlankSpace, QuestionEntity, QuestionImage, QuestionRef, QuestionType
 
 
 class PaperStatus(StrEnum):
@@ -146,3 +146,64 @@ class ExportPreviewRequest(BaseModel):
     includeAnswer: bool = True
     questionOrder: QuestionOrder = QuestionOrder.paper
     layoutDensity: LayoutDensity = LayoutDensity.auto
+
+
+class PaperDraftQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    questionPublicId: str = Field(min_length=1)
+    orderNo: int = Field(gt=0)
+    marks: int | None = Field(default=None, gt=0)
+    type: QuestionType
+    subjects: list[str] = Field(default_factory=list)
+    difficulty: Difficulty = Difficulty.medium
+    tags: list[str] = Field(default_factory=list)
+    text: str = Field(min_length=1)
+    options: list[str] | None = None
+    answer: str | list[str] = ""
+    hasLatex: bool = False
+    source: str | None = None
+    essayBlankSpace: EssayBlankSpace | None = None
+    images: list[QuestionImage] = Field(default_factory=list)
+    scoreWeight: float = Field(default=1, gt=0, le=100)
+
+    @model_validator(mode="after")
+    def normalize_draft_question(self):
+        self.questionPublicId = self.questionPublicId.strip()
+        self.text = self.text.strip()
+        self.subjects = list(dict.fromkeys(subject.strip() for subject in self.subjects if subject and subject.strip()))
+        self.tags = list(dict.fromkeys(tag.strip().lower() for tag in self.tags if tag and tag.strip()))
+        if self.options is not None:
+            self.options = [option.strip() for option in self.options if option and option.strip()]
+        if isinstance(self.answer, str):
+            self.answer = self.answer.strip()
+        else:
+            self.answer = list(dict.fromkeys(item.strip() for item in self.answer if item and item.strip()))
+        if self.source is not None:
+            self.source = self.source.strip() or None
+        if not self.questionPublicId:
+            raise ValueError("questionPublicId is required")
+        if not self.text:
+            raise ValueError("text is required")
+        return self
+
+
+class PaperDraftDownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1)
+    subject: str = Field(min_length=1)
+    duration: int = Field(gt=0)
+    totalMarks: int = Field(gt=0)
+    questions: list[PaperDraftQuestion] = Field(min_length=1)
+    includeAnswer: bool = True
+    questionOrder: QuestionOrder = QuestionOrder.paper
+    layoutDensity: LayoutDensity = LayoutDensity.auto
+
+    @model_validator(mode="after")
+    def normalize_draft_download(self):
+        self.title = self.title.strip()
+        self.subject = self.subject.strip()
+        if not self.title:
+            raise ValueError("title is required")
+        if not self.subject:
+            raise ValueError("subject is required")
+        return self
