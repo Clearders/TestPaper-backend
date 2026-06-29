@@ -31,6 +31,7 @@ from testpaper_backend.services.papers import (
     get_paper_or_404,
     paper_with_questions,
     remove_question_from_paper,
+    replace_paper_question_refs,
     reorder_paper_question_refs,
     update_paper_metadata,
     validate_unique_question_refs,
@@ -176,6 +177,23 @@ def reorder_paper_questions(
     paper = get_paper_or_404(paper_public_id)
     ensure_paper_owner_access(paper, current_user)
     updated = reorder_paper_question_refs(paper, payload)
+    event_payload = {"paper": updated.model_dump(mode="json"), "actorId": current_user.id, "paperId": updated.publicId}
+    background_tasks.add_task(realtime.broadcast, "paper.questions.reordered", event_payload)
+    return envelope(paper_with_questions(updated), request)
+
+
+@router.put("/{paper_public_id}/questions", response_model=Envelope[PaperExpandedEntity])
+def replace_paper_questions(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    paper_public_id: str,
+    payload: list[QuestionRef],
+    current_user: PapersWriteDep,
+    _: RateLimitWriteDep,
+):
+    paper = get_paper_or_404(paper_public_id)
+    ensure_paper_owner_access(paper, current_user)
+    updated = replace_paper_question_refs(paper, payload)
     event_payload = {"paper": updated.model_dump(mode="json"), "actorId": current_user.id, "paperId": updated.publicId}
     background_tasks.add_task(realtime.broadcast, "paper.questions.reordered", event_payload)
     return envelope(paper_with_questions(updated), request)

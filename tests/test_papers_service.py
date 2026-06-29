@@ -62,3 +62,47 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
 
     assert [question["id"] for question in paper_order] == [1, 2, 3, 4, 5]
     assert [question["id"] for question in categorized] == [2, 4, 5, 3, 1]
+
+
+def test_replace_paper_question_refs_updates_existing_paper_without_duplicate(monkeypatch) -> None:
+    questions = {
+        "q-1": _question(1, QuestionType.single_choice, "choice first"),
+        "q-2": _question(2, QuestionType.short_answer, "short answer"),
+    }
+    stored_papers = {
+        1: PaperEntity(
+            id=1,
+            publicId="p-1",
+            title="Existing Draft",
+            subject="Math",
+            duration=60,
+            totalMarks=100,
+            questions=[QuestionRef(questionPublicId="q-1", orderNo=1, marks=5)],
+            createdAt=datetime(2026, 5, 19, tzinfo=UTC),
+            updatedAt=datetime(2026, 5, 19, tzinfo=UTC),
+        )
+    }
+
+    class FakePaperStore:
+        def __setitem__(self, paper_id: int, paper: PaperEntity) -> None:
+            stored_papers[paper_id] = paper.model_copy(update={"id": paper_id})
+
+        def create(self, paper: PaperEntity) -> PaperEntity:
+            raise AssertionError("editing an existing draft must not create a new paper")
+
+    monkeypatch.setattr(papers, "PAPERS", FakePaperStore())
+    monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(get_by_public_id=questions.get))
+
+    updated = papers.replace_paper_question_refs(
+        stored_papers[1],
+        [
+            QuestionRef(questionPublicId="q-2", orderNo=1, marks=7),
+            QuestionRef(questionPublicId="q-1", orderNo=2, marks=5),
+        ],
+    )
+
+    assert len(stored_papers) == 1
+    assert updated.publicId == "p-1"
+    assert [item.questionPublicId for item in stored_papers[1].questions] == ["q-2", "q-1"]
+    assert [item.orderNo for item in stored_papers[1].questions] == [1, 2]
+    assert [item.marks for item in stored_papers[1].questions] == [7, 5]

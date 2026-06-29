@@ -106,6 +106,14 @@ def reorder_paper_question_refs(paper: PaperEntity, payload: QuestionOrderUpdate
     return _save_ordered_paper(paper)
 
 
+def replace_paper_question_refs(paper: PaperEntity, question_refs: list[QuestionRef]) -> PaperEntity:
+    validate_unique_question_refs(question_refs, "questions")
+    for item in question_refs:
+        get_question_or_404(item.questionPublicId)
+    paper.questions = [QuestionRef(**item.model_dump()) for item in question_refs]
+    return _save_ordered_paper(paper)
+
+
 def _save_ordered_paper(paper: PaperEntity) -> PaperEntity:
     paper.questions = sorted(paper.questions, key=lambda item: item.orderNo)
     paper.updatedAt = now_utc()
