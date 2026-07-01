@@ -35,6 +35,7 @@ from testpaper_backend.schemas import (
 )
 from testpaper_backend.security import has_permission
 from testpaper_backend.services.metadata import invalidate_meta_cache
+from testpaper_backend.services.ownership import can_manage_owned_resource
 from testpaper_backend.time_utils import now_utc
 
 QUESTION_SORT_COLUMNS = {
@@ -169,7 +170,7 @@ def normalize_question_owner(owner_id: int | None, current_user: UserEntity) -> 
 
 
 def ensure_question_owner_access(question: QuestionEntity, current_user: UserEntity) -> None:
-    if question.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+    if can_manage_owned_resource(question.ownerId, current_user):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -178,7 +179,7 @@ def ensure_question_owner_access(question: QuestionEntity, current_user: UserEnt
 
 
 def ensure_question_correction_access(question: QuestionEntity, current_user: UserEntity) -> None:
-    if question.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+    if can_manage_owned_resource(question.ownerId, current_user):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

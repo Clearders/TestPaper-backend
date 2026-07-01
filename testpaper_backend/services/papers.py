@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 
 from testpaper_backend.repositories import PAPERS, QUESTIONS, normalize_question_type
 from testpaper_backend.schemas import PaperEntity, PaperUpdate, QuestionOrder, QuestionOrderUpdate, QuestionRef, QuestionType, UserEntity
-from testpaper_backend.security import has_permission
+from testpaper_backend.services.ownership import can_manage_owned_resource
 from testpaper_backend.services.questions import get_question_or_404, question_to_dict
 from testpaper_backend.time_utils import now_utc
 
@@ -22,7 +22,7 @@ def get_paper_or_404(paper_public_id: str) -> PaperEntity:
 
 
 def ensure_paper_owner_access(paper: PaperEntity, current_user: UserEntity) -> None:
-    if paper.ownerId in (None, current_user.id) or has_permission(current_user, "users:manage"):
+    if can_manage_owned_resource(paper.ownerId, current_user):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

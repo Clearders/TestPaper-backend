@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
@@ -44,6 +45,29 @@ from testpaper_backend.services.realtime import realtime
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
+
+
+def _docx_response(
+    paper: Any,
+    questions: list[dict[str, Any]],
+    *,
+    include_answer: bool,
+    layout_density: LayoutDensity,
+    export_format: str = "docx",
+    extra_headers: dict[str, str] | None = None,
+) -> Response:
+    effective_layout_density = resolve_layout_density(questions, layout_density)
+    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layout_density)
+    filename = docx_filename(paper.title)
+    ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
+        "X-Export-Format": export_format,
+        "X-Layout-Density": effective_layout_density,
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    return Response(content=file_bytes, media_type=DOCX_MEDIA_TYPE, headers=headers)
 
 
 @router.post("", response_model=Envelope[PaperExpandedEntity], status_code=status.HTTP_201_CREATED)
@@ -109,20 +133,12 @@ def download_draft_paper(
         duration=payload.duration,
         totalMarks=payload.totalMarks,
     )
-    effective_layout_density = resolve_layout_density(questions, payload.layoutDensity)
-    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=payload.layoutDensity)
-    filename = docx_filename(payload.title)
-    ascii_filename = docx_filename(payload.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
-
-    return Response(
-        content=file_bytes,
-        media_type=DOCX_MEDIA_TYPE,
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
-            "X-Export-Format": "docx",
-            "X-Layout-Density": effective_layout_density,
-            "X-Draft-Export": "true",
-        },
+    return _docx_response(
+        paper,
+        questions,
+        include_answer=include_answer,
+        layout_density=payload.layoutDensity,
+        extra_headers={"X-Draft-Export": "true"},
     )
 
 
@@ -267,17 +283,10 @@ def download_paper(
     paper = get_paper_or_404(paper_public_id)
     include_answer = includeAnswer and has_permission(current_user, "answers:read")
     questions = build_export_questions(paper, questionOrder, include_answer)
-    effective_layout_density = resolve_layout_density(questions, layoutDensity)
-    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layoutDensity)
-    filename = docx_filename(paper.title)
-    ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
-
-    return Response(
-        content=file_bytes,
-        media_type=DOCX_MEDIA_TYPE,
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
-            "X-Export-Format": format,
-            "X-Layout-Density": effective_layout_density,
-        },
+    return _docx_response(
+        paper,
+        questions,
+        include_answer=include_answer,
+        layout_density=layoutDensity,
+        export_format=format,
     )
