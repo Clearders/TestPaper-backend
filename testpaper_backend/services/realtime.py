@@ -87,6 +87,7 @@ class RealtimeConnectionManager:
             try:
                 await websocket.send_text(message)
             except Exception:
+                logger.debug("Dropping stale realtime websocket after send failure", exc_info=True)
                 stale.append(websocket)
         for ws in stale:
             self.disconnect(ws)
