@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 from uuid import uuid4
@@ -11,6 +12,8 @@ from testpaper_backend.redis_client import get_redis
 from testpaper_backend.schemas import UserEntity
 from testpaper_backend.security import has_permission
 from testpaper_backend.worker.celery_app import celery
+
+logger = logging.getLogger(__name__)
 
 TASK_OWNER_PREFIX = "task-owner:"
 TASK_OWNER_TTL_SECONDS = 3700
@@ -40,7 +43,10 @@ def dispatch_owned_task(
     try:
         return celery.send_task(name, args=list(args or ()), kwargs=kwargs or {}, task_id=task_id)
     except Exception as exc:
-        client.delete(_owner_key(task_id))
+        try:
+            client.delete(_owner_key(task_id))
+        except Exception:
+            logger.debug("Failed to clean up owner key for task %s after dispatch failure.", task_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "TASK_QUEUE_UNAVAILABLE", "message": "Task queue is temporarily unavailable"},

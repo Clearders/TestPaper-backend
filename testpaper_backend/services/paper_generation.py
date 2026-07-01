@@ -74,10 +74,7 @@ def difficulty_targets_from_coefficient(coefficient: float, question_count: int)
         Difficulty.medium: 0.5,
         Difficulty.hard: 1.0,
     }
-    weights = {
-        difficulty: max(0.0, 1.0 - abs(coefficient - anchor) * 2)
-        for difficulty, anchor in anchors.items()
-    }
+    weights = {difficulty: max(0.0, 1.0 - abs(coefficient - anchor) * 2) for difficulty, anchor in anchors.items()}
     if not any(weights.values()):
         weights[Difficulty.medium] = 1.0
     raw_targets = {difficulty: round(question_count * weight) for difficulty, weight in weights.items()}
@@ -120,13 +117,14 @@ def generation_type_counts(payload: PaperGenerateRequest) -> dict[QuestionType, 
 
 # ---- Phase 1: Candidate Selection ----
 
+
 def build_generation_candidates(payload: PaperGenerateRequest, owner_id: int | None = None) -> list[QuestionEntity]:
     subjects = [s.strip() for s in payload.subjects if s.strip()]
     if not subjects:
         raise ValueError("At least one subject is required")
     selected_types = set(generation_type_counts(payload))
     statement = select(QuestionRow).where(
-        QuestionRow.subjects.op('?|')(type_coerce(subjects, ARRAY(String))),
+        QuestionRow.subjects.op("?|")(type_coerce(subjects, ARRAY(String))),
     )
     if owner_id is not None:
         statement = statement.where(QuestionRow.owner_id == owner_id)
@@ -172,6 +170,7 @@ def build_generation_features(questions: list[QuestionEntity]) -> dict[int, Gene
 
 
 # ---- Phase 2: Fitness Evaluation ----
+
 
 def individual_fitness(
     individual: list[int],
@@ -292,6 +291,7 @@ def build_generation_result(
 
 # ---- Phase 3: Genetic Algorithm Loop ----
 
+
 def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_id: int | None = None) -> dict[str, Any]:
     candidates = build_generation_candidates(payload, owner_id=owner_id)
     question_by_id = {question.id: question for question in candidates}
@@ -306,12 +306,14 @@ def generate_paper_with_genetic_algorithm(payload: PaperGenerateRequest, owner_i
         target = min(requested_count, available)
         type_targets[question_type] = target
         if target < requested_count:
-            type_adjustments.append({
-                "type": question_type.value,
-                "requested": requested_count,
-                "available": available,
-                "adjusted": target,
-            })
+            type_adjustments.append(
+                {
+                    "type": question_type.value,
+                    "requested": requested_count,
+                    "available": available,
+                    "adjusted": target,
+                }
+            )
     question_count = sum(type_targets.values())
     if len(candidates) < question_count:
         raise api_error(

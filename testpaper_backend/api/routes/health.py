@@ -48,16 +48,18 @@ async def redis_health(request: Request):
         info = cast(dict[str, Any], await client.info())
         result: dict[str, Any] = {"status": "connected", "latencyMs": latency_ms}
         if not is_production():
-            result.update({
-                "redisVersion": info.get("redis_version"),
-                "usedMemoryHuman": info.get("used_memory_human"),
-                "connectedClients": info.get("connected_clients"),
-                "blockedClients": info.get("blocked_clients"),
-                "keyspaceHits": info.get("keyspace_hits"),
-                "keyspaceMisses": info.get("keyspace_misses"),
-                "instantaneousOpsPerSec": info.get("instantaneous_ops_per_sec"),
-                "uptimeInSeconds": info.get("uptime_in_seconds"),
-            })
+            result.update(
+                {
+                    "redisVersion": info.get("redis_version"),
+                    "usedMemoryHuman": info.get("used_memory_human"),
+                    "connectedClients": info.get("connected_clients"),
+                    "blockedClients": info.get("blocked_clients"),
+                    "keyspaceHits": info.get("keyspace_hits"),
+                    "keyspaceMisses": info.get("keyspace_misses"),
+                    "instantaneousOpsPerSec": info.get("instantaneous_ops_per_sec"),
+                    "uptimeInSeconds": info.get("uptime_in_seconds"),
+                }
+            )
         return envelope(result, request)
     except Exception as exc:
         error_msg = "Redis health check failed" if is_production() else str(exc)

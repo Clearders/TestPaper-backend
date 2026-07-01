@@ -127,13 +127,13 @@ class MigrationOperation:
             self.row_ids["questions"] = ids
             return
 
-        create_index = re.match(r'CREATE INDEX IF NOT EXISTS (\w+) ON (\w+)', normalized, re.IGNORECASE)
+        create_index = re.match(r"CREATE INDEX IF NOT EXISTS (\w+) ON (\w+)", normalized, re.IGNORECASE)
         if create_index:
             table = self._table(create_index.group(2))
             table.indexes.add(create_index.group(1))
             return
 
-        drop_index = re.match(r'DROP INDEX IF EXISTS (\w+)', normalized, re.IGNORECASE)
+        drop_index = re.match(r"DROP INDEX IF EXISTS (\w+)", normalized, re.IGNORECASE)
         if drop_index:
             table = self._find_index_table(drop_index.group(1), None)
             if table is not None:
@@ -223,15 +223,10 @@ def simulate_migrations(project_root: Path | None = None) -> dict[str, Any]:
         migration.op = operation
         migration.upgrade()
 
-    model_columns = {
-        table.name: {column.name for column in table.columns}
-        for table in Base.metadata.sorted_tables
-    }
+    model_columns = {table.name: {column.name for column in table.columns} for table in Base.metadata.sorted_tables}
     simulated_columns = {name: state.columns for name, state in operation.tables.items()}
     if simulated_columns != model_columns:
-        raise AssertionError(
-            f"migration/model schema mismatch: simulated={simulated_columns}, models={model_columns}"
-        )
+        raise AssertionError(f"migration/model schema mismatch: simulated={simulated_columns}, models={model_columns}")
     if operation.row_ids["users"]:
         raise AssertionError("fresh migrations must not seed users")
     if operation.row_ids["questions"] != list(range(1, 11)):

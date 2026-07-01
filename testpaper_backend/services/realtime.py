@@ -57,7 +57,7 @@ class RealtimeConnectionManager:
                             payload = data["payload"]
                             if not isinstance(event, str) or not isinstance(payload, dict):
                                 raise ValueError("Realtime event must contain a string event and object payload")
-                        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                        except KeyError, TypeError, ValueError, json.JSONDecodeError:
                             logger.warning("Ignoring malformed realtime event", exc_info=True)
                             continue
                         if data.get("source") == self._source_id:

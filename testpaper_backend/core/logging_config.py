@@ -25,10 +25,12 @@ def configure_library_loggers() -> None:
 
     handler = logging.StreamHandler()
     handler.addFilter(RequestIdFilter())
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(request_id)s] %(name)s %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(request_id)s] %(name)s %(levelname)s: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
     root = logging.getLogger()
     root.addHandler(handler)
     root.setLevel(logging.INFO)

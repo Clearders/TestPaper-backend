@@ -1,4 +1,4 @@
-﻿# ruff: noqa: RUF001
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 import re
@@ -303,9 +303,9 @@ def _question_paragraphs_for_items(
             paragraphs.append(_essay_answer_space(question.get("essayBlankSpace"), scale=blank_scale))
 
         if include_answer and "answer" in question:
-            ans = question.get('answer', '')
+            ans = question.get("answer", "")
             if isinstance(ans, list):
-                ans = ', '.join(ans)
+                ans = ", ".join(ans)
             answer_label = "答案：" if localized else "Answer: "
             paragraphs.append(
                 _paragraph_with_latex(
@@ -669,8 +669,8 @@ def _replace_chinese_template_title(document_xml: str, paper_title: str) -> str:
     para_end_pos += len("</w:p>")
     para_xml = document_xml[para_start:para_end_pos]
     gt_pos = para_xml.find(">")
-    para_opening = para_xml[:gt_pos + 1]
-    para_content = para_xml[gt_pos + 1:-len("</w:p>")]
+    para_opening = para_xml[: gt_pos + 1]
+    para_content = para_xml[gt_pos + 1 : -len("</w:p>")]
     title_runs_pattern = re.compile(
         r'<w:r\b[^>]*>(?:(?!</w:r>).)*?<w:sz w:val="36"/>(?:(?!</w:r>).)*?</w:r>',
         re.DOTALL,
@@ -678,12 +678,7 @@ def _replace_chinese_template_title(document_xml: str, paper_title: str) -> str:
     title_runs = title_runs_pattern.findall(para_content)
     if not title_runs:
         return document_xml
-    new_run = (
-        "<w:r>"
-        "<w:rPr><w:b/><w:bCs/><w:sz w:val=\"36\"/></w:rPr>"
-        f"<w:t>{escape(paper_title)}</w:t>"
-        "</w:r>"
-    )
+    new_run = f'<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="36"/></w:rPr><w:t>{escape(paper_title)}</w:t></w:r>'
     new_content = para_content.replace(title_runs[0], new_run)
     for run in title_runs[1:]:
         new_content = new_content.replace(run, "", 1)
@@ -702,15 +697,13 @@ def _ensure_document_namespaces(document_xml: str) -> str:
 
     document_tag = document_tag_match.group(0)
     additions = [
-        attribute
-        for prefix, attribute in namespace_attrs.items()
-        if re.search(rf"\\s{re.escape(prefix)}\\s*=", document_tag) is None
+        attribute for prefix, attribute in namespace_attrs.items() if re.search(rf"\\s{re.escape(prefix)}\\s*=", document_tag) is None
     ]
     if not additions:
         return document_xml
 
     updated_tag = document_tag[:-1] + " " + " ".join(additions) + ">"
-    return document_xml[:document_tag_match.start()] + updated_tag + document_xml[document_tag_match.end():]
+    return document_xml[: document_tag_match.start()] + updated_tag + document_xml[document_tag_match.end() :]
 
 
 def _populate_template_question_pages(
@@ -774,7 +767,7 @@ def _populate_template_table(
             continue
         properties_end += len("</w:tcPr>")
         updated_cell = cell_xml[:properties_end] + replacement + "</w:tc>"
-        row_xml = row_xml[:match.start()] + updated_cell + row_xml[match.end():]
+        row_xml = row_xml[: match.start()] + updated_cell + row_xml[match.end() :]
 
     row_xml = row_xml.replace("<w:cantSplit/>", "", 1)
     if compact_layout:
@@ -845,7 +838,7 @@ def _essay_blank_height_twips(blank_space: Any) -> int:
 def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         parsed = fallback
     return max(minimum, min(maximum, parsed))
 
@@ -922,7 +915,7 @@ def _latex_runs(text: str, run_props_xml: str) -> str:
     position = 0
     for match in _LATEX_SEGMENT_RE.finditer(text):
         if match.start() > position:
-            runs.append(_text_runs(text[position:match.start()], run_props_xml))
+            runs.append(_text_runs(text[position : match.start()], run_props_xml))
         latex = match.group("block") or match.group("inline") or ""
         runs.append(_math_run(latex))
         position = match.end()
@@ -947,7 +940,7 @@ def _latex_to_omml(latex: str) -> str:
 
 
 def _math_text(text: str) -> str:
-    return f'<m:r><m:t>{escape(text)}</m:t></m:r>'
+    return f"<m:r><m:t>{escape(text)}</m:t></m:r>"
 
 
 def _math_arg(xml: str) -> str:
@@ -1116,7 +1109,7 @@ def _plain_latex_text(text: str) -> str:
 def _image_paragraph(relationship_id: str, image_index: int, image_bytes: bytes) -> str:
     cx, cy = _image_dimensions_emu(image_bytes)
     return (
-        "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:drawing>"
+        '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
         '<wp:inline distT="0" distB="0" distL="0" distR="0">'
         f'<wp:extent cx="{cx}" cy="{cy}"/>'
         f'<wp:docPr id="{image_index}" name="Question Image {image_index}"/>'

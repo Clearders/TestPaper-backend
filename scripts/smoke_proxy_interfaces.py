@@ -172,7 +172,7 @@ class MockBackendHandler(BaseHTTPRequestHandler):
             content = make_docx_bytes()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", DOCX_MEDIA_TYPE)
-            self.send_header("Content-Disposition", "attachment; filename=\"mock-paper.docx\"")
+            self.send_header("Content-Disposition", 'attachment; filename="mock-paper.docx"')
             self.send_header("X-Export-Format", "docx")
             self.send_header("X-Mock-Upstream", "backend")
             self.send_header("Content-Length", str(len(content)))

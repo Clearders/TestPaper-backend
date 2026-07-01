@@ -1,2 +1,1 @@
 """TestPaper backend application package."""
-

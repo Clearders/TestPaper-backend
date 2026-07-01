@@ -41,8 +41,10 @@ uvicorn testpaper_backend.application:app --reload
 celery -A testpaper_backend.worker.celery_app:celery worker --loglevel=info
 alembic upgrade head
 python scripts/bootstrap_admin.py
+ruff format .
 ruff check .
 pytest
+python scripts/check.py
 ```
 
 ## Environment Variables

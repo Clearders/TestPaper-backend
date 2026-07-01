@@ -40,27 +40,24 @@ def compute_question_stats(self: BaseTask) -> dict[str, Any]:
     session = _worker_session()
     try:
         total = session.query(func.count(QuestionRow.id)).scalar() or 0
-        type_counts = Counter(
-            dict(session.query(QuestionRow.type, func.count(QuestionRow.id)).group_by(QuestionRow.type).all())
-        )
+        type_counts = Counter(dict(session.query(QuestionRow.type, func.count(QuestionRow.id)).group_by(QuestionRow.type).all()))
         difficulty_counts = Counter(
             dict(session.query(QuestionRow.difficulty, func.count(QuestionRow.id)).group_by(QuestionRow.difficulty).all())
         )
-        subject_counts = Counter(dict(
-            session.execute(
-                text(
-                    "SELECT t.value AS subject, COUNT(*) AS count "
-                    "FROM questions, jsonb_array_elements_text(questions.subjects) AS t(value) "
-                    "GROUP BY t.value"
-                )
-            ).fetchall()
-        ))
+        subject_counts = Counter(
+            dict(
+                session.execute(
+                    text(
+                        "SELECT t.value AS subject, COUNT(*) AS count "
+                        "FROM questions, jsonb_array_elements_text(questions.subjects) AS t(value) "
+                        "GROUP BY t.value"
+                    )
+                ).fetchall()
+            )
+        )
         latex_count = session.query(func.count(QuestionRow.id)).filter(QuestionRow.has_latex.is_(True)).scalar() or 0
         tag_counter = Counter(
-            str(tag).strip().lower()
-            for tags in session.query(QuestionRow.tags)
-            for tag in (tags[0] or [])
-            if tag is not None
+            str(tag).strip().lower() for tags in session.query(QuestionRow.tags) for tag in (tags[0] or []) if tag is not None
         )
 
         return {
@@ -125,15 +122,17 @@ def _to_csv_format(result: dict[str, Any]) -> dict[str, Any]:
     writer = csv.writer(buf)
     writer.writerow(["Order", "Type", "Subjects", "Difficulty", "Question", "Answer", "Marks"])
     for i, q in enumerate(result["questions"], 1):
-        writer.writerow([
-            i,
-            _csv_safe(q.get("type")),
-            _csv_safe(", ".join(q.get("subjects", []))),
-            _csv_safe(q.get("difficulty")),
-            _csv_safe(q.get("text")),
-            _csv_safe(q.get("answer", "")),
-            q.get("marks"),
-        ])
+        writer.writerow(
+            [
+                i,
+                _csv_safe(q.get("type")),
+                _csv_safe(", ".join(q.get("subjects", []))),
+                _csv_safe(q.get("difficulty")),
+                _csv_safe(q.get("text")),
+                _csv_safe(q.get("answer", "")),
+                q.get("marks"),
+            ]
+        )
     return {"csv": buf.getvalue(), "exportedAt": result["exportedAt"]}
 
 

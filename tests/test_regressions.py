@@ -346,11 +346,7 @@ def test_content_security_policy_is_hardened_for_api_responses() -> None:
     from testpaper_backend.application import app
 
     csp = TestClient(app).get("/").headers["content-security-policy"]
-    directives = {
-        parts[0]: parts[1:]
-        for directive in csp.split(";")
-        if (parts := directive.strip().split())
-    }
+    directives = {parts[0]: parts[1:] for directive in csp.split(";") if (parts := directive.strip().split())}
 
     assert directives == {
         "default-src": ["'self'"],
@@ -600,27 +596,29 @@ def test_expanded_paper_route_preserves_question_fields_and_answer_gate(monkeypa
     def fake_paper_with_questions(paper_arg, include_answer=True):
         include_answer_calls.append(include_answer)
         payload = paper_arg.model_dump(mode="json")
-        payload["questions"] = [{
-            "id": 10,
-            "publicId": "question-1",
-            "questionPublicId": "question-1",
-            "orderNo": 1,
-            "marks": 5,
-            "type": "single_choice",
-            "subjects": ["Math"],
-            "difficulty": "easy",
-            "tags": ["algebra"],
-            "text": "2 + 2 = ?",
-            "options": ["3", "4"],
-            "answer": "4" if include_answer else "",
-            "hasLatex": False,
-            "source": "unit-test",
-            "images": [],
-            "scoreWeight": 1.0,
-            "ownerId": viewer.id,
-            "createdAt": "2026-06-14T00:00:00Z",
-            "updatedAt": "2026-06-14T00:00:00Z",
-        }]
+        payload["questions"] = [
+            {
+                "id": 10,
+                "publicId": "question-1",
+                "questionPublicId": "question-1",
+                "orderNo": 1,
+                "marks": 5,
+                "type": "single_choice",
+                "subjects": ["Math"],
+                "difficulty": "easy",
+                "tags": ["algebra"],
+                "text": "2 + 2 = ?",
+                "options": ["3", "4"],
+                "answer": "4" if include_answer else "",
+                "hasLatex": False,
+                "source": "unit-test",
+                "images": [],
+                "scoreWeight": 1.0,
+                "ownerId": viewer.id,
+                "createdAt": "2026-06-14T00:00:00Z",
+                "updatedAt": "2026-06-14T00:00:00Z",
+            }
+        ]
         return payload
 
     app = FastAPI()

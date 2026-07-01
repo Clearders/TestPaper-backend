@@ -87,9 +87,7 @@ class PaperRow(Base):
 
 class PaperQuestionRow(Base):
     __tablename__ = "paper_questions"
-    __table_args__ = (
-        UniqueConstraint("paper_id", "orderNo", name="uq_paper_question_order"),
-    )
+    __table_args__ = (UniqueConstraint("paper_id", "orderNo", name="uq_paper_question_order"),)
 
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)

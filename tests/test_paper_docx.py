@@ -114,10 +114,7 @@ def test_resolve_layout_density_reports_effective_auto_choice() -> None:
 
 
 def test_default_template_skips_inline_data_image_urls() -> None:
-    png = (
-        "data:image/png;base64,"
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-    )
+    png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     docx = build_paper_docx(
         _paper(),
         [
@@ -211,10 +208,7 @@ def test_template_compresses_layout_for_many_questions() -> None:
     left_paragraph_texts = ["".join(paragraph.itertext()) for paragraph in cells[0].findall("w:p", namespace)]
     right_paragraph_texts = ["".join(paragraph.itertext()) for paragraph in cells[1].findall("w:p", namespace)]
     assert any("Choose the expression for x + 1." in text for text in left_paragraph_texts)
-    assert any(
-        "A. x + 1" in text and "B. x - 1" in text and "C. 1x" in text and "D. x / 1" in text
-        for text in left_paragraph_texts
-    )
+    assert any("A. x + 1" in text and "B. x - 1" in text and "C. 1x" in text and "D. x / 1" in text for text in left_paragraph_texts)
     assert any("Choose the expression for x + 16." in text for text in right_paragraph_texts)
     assert any("Fill the blank 4." in text for text in right_paragraph_texts)
     assert sum(1 for text in left_paragraph_texts + right_paragraph_texts if "Choose the expression for x +" in text) == 16
@@ -256,8 +250,7 @@ def test_built_distributions_include_chinese_template_and_packaged_export(tmp_pa
 
     dist_dir = tmp_path / "dist"
     build_script = (
-        "from setuptools.build_meta import build_sdist, build_wheel; "
-        f"build_sdist({str(dist_dir)!r}); build_wheel({str(dist_dir)!r})"
+        f"from setuptools.build_meta import build_sdist, build_wheel; build_sdist({str(dist_dir)!r}); build_wheel({str(dist_dir)!r})"
     )
     subprocess.run([sys.executable, "-c", build_script], cwd=build_root, check=True)
 

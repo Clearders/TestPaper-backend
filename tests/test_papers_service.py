@@ -16,9 +16,9 @@ def _question(question_id: int, question_type: QuestionType, text: str) -> Quest
         difficulty=Difficulty.easy,
         tags=[],
         text=text,
-        options=["A", "B"] if question_type in (
-            QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false
-        ) else None,
+        options=["A", "B"]
+        if question_type in (QuestionType.single_choice, QuestionType.multiple_choice, QuestionType.true_false)
+        else None,
         answer="A",
         createdAt=datetime(2026, 5, 19, tzinfo=UTC),
         updatedAt=datetime(2026, 5, 19, tzinfo=UTC),
@@ -33,11 +33,15 @@ def test_build_export_questions_groups_by_type_after_paper_order(monkeypatch) ->
         4: _question(4, QuestionType.single_choice, "choice second"),
         5: _question(5, QuestionType.blank, "blank"),
     }
-    monkeypatch.setattr(papers, "QUESTIONS", SimpleNamespace(
-        get=questions.get,
-        get_by_public_id=lambda pid: questions.get(int(pid[2:])),
-        get_by_public_ids=lambda public_ids: {pid: questions[int(pid[2:])] for pid in public_ids},
-    ))
+    monkeypatch.setattr(
+        papers,
+        "QUESTIONS",
+        SimpleNamespace(
+            get=questions.get,
+            get_by_public_id=lambda pid: questions.get(int(pid[2:])),
+            get_by_public_ids=lambda public_ids: {pid: questions[int(pid[2:])] for pid in public_ids},
+        ),
+    )
 
     paper = PaperEntity(
         id=1,

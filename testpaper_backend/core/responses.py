@@ -23,4 +23,3 @@ def error_envelope(code: str, message: str, request: Request, details: Any | Non
         "error": error,
         "meta": {"requestId": request.state.request_id},
     }
-

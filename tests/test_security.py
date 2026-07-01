@@ -32,15 +32,17 @@ def test_has_permission():
         username="admin",
         displayName="Admin",
         role=UserRole.admin,
-        permissions=sorted([
-            "questions:read",
-            "questions:write",
-            "questions:delete",
-            "answers:read",
-            "papers:read",
-            "papers:write",
-            "users:manage",
-        ]),
+        permissions=sorted(
+            [
+                "questions:read",
+                "questions:write",
+                "questions:delete",
+                "answers:read",
+                "papers:read",
+                "papers:write",
+                "users:manage",
+            ]
+        ),
         isActive=True,
         createdAt=datetime(2026, 5, 19, tzinfo=UTC),
         updatedAt=datetime(2026, 5, 19, tzinfo=UTC),

@@ -165,9 +165,7 @@ def paper_row_to_entity(row: PaperRow, public_id_map: dict[int, str] | None = No
     if public_id_map is None:
         if question_ids:
             with SessionLocal() as session:
-                result = session.execute(
-                    select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))
-                ).all()
+                result = session.execute(select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(question_ids))).all()
                 public_id_map = {r.id: r.public_id for r in result}
         else:
             public_id_map = {}
@@ -206,7 +204,7 @@ def paper_entity_to_row_kwargs(paper: PaperEntity) -> dict[str, Any]:
 
 class StoreMixin(ABC):
     """Mixin providing dict-like iteration/counting/lookup interface."""
-    
+
     def items(self) -> list[tuple[int, Any]]:
         return [(e.id, e) for e in self.values()]
 
@@ -256,9 +254,7 @@ class QuestionStore(StoreMixin):
 
     def get_by_public_id(self, public_id: str) -> QuestionEntity | None:
         with SessionLocal() as session:
-            row = session.scalars(
-                select(QuestionRow).where(QuestionRow.public_id == public_id)
-            ).first()
+            row = session.scalars(select(QuestionRow).where(QuestionRow.public_id == public_id)).first()
             if row is None:
                 return None
             return question_row_to_entity(row)
@@ -322,9 +318,7 @@ class PaperStore(StoreMixin):
         public_ids = [item.questionPublicId for item in questions]
         id_map: dict[str, int] = {}
         if public_ids:
-            result = session.execute(
-                select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.public_id.in_(public_ids))
-            ).all()
+            result = session.execute(select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.public_id.in_(public_ids))).all()
             id_map = {r.public_id: r.id for r in result}
         rows = []
         for item in sorted(questions, key=lambda item: item.orderNo):
@@ -342,9 +336,7 @@ class PaperStore(StoreMixin):
             rows = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).order_by(PaperRow.id)).all()
             all_question_ids = {item.question_id for row in rows for item in row.questions}
             if all_question_ids:
-                result = session.execute(
-                    select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(all_question_ids))
-                ).all()
+                result = session.execute(select(QuestionRow.id, QuestionRow.public_id).where(QuestionRow.id.in_(all_question_ids))).all()
                 public_id_map = {r.id: r.public_id for r in result}
             else:
                 public_id_map = {}
@@ -356,9 +348,7 @@ class PaperStore(StoreMixin):
 
     def get(self, paper_id: int) -> PaperEntity | None:
         with SessionLocal() as session:
-            row = session.scalars(
-                select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.id == paper_id)
-            ).first()
+            row = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.id == paper_id)).first()
             if row is None:
                 return None
             question_ids = [item.question_id for item in row.questions]
@@ -367,9 +357,7 @@ class PaperStore(StoreMixin):
 
     def get_by_public_id(self, public_id: str) -> PaperEntity | None:
         with SessionLocal() as session:
-            row = session.scalars(
-                select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.public_id == public_id)
-            ).first()
+            row = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).where(PaperRow.public_id == public_id)).first()
             if row is None:
                 return None
             question_ids = [item.question_id for item in row.questions]
