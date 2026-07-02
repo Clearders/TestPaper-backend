@@ -7,7 +7,7 @@ import zipfile
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from xml.sax.saxutils import escape
 
 from testpaper_backend.question_images import QUESTION_IMAGE_PATH_PREFIX, normalize_question_image_url
@@ -66,12 +66,22 @@ _TEMPLATE_TYPE_LABELS = {
     "short_answer": "简答题",
     "essay": "计算与论述题",
 }
+_TEMPLATE_INSTRUCTIONS = "答题说明：请将答案填写在相应位置，计算与论述题请写出必要步骤。"
+_TEMPLATE_EMPTY_COLUMN_TEXT = "本栏暂无题目。"
 _QUESTION_SECTION_XML = (
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
     '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
     'w:header="720" w:footer="720" w:gutter="0"/>'
     "</w:sectPr>"
 )
+
+
+class _TemplateSection(NamedTuple):
+    number: int
+    question_type: str
+    items: list[tuple[int, dict[str, Any]]]
+    density: str
+
 _MATH_SYMBOLS = {
     "alpha": "\u03b1",
     "beta": "\u03b2",
@@ -363,25 +373,10 @@ def _template_question_pages(
         return [(left_cell_xml, right_cell_xml)], compact_layout
 
     columns: list[list[str]] = [
-        [
-            _paragraph(
-                f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
-                bold=True,
-                size=20,
-                spacing_after=0,
-            ),
-            _paragraph(
-                "答题说明：请将答案填写在相应位置，计算与论述题请写出必要步骤。",
-                italic=True,
-                size=18,
-                spacing_after=0,
-            ),
-        ]
+        _template_intro_paragraphs(paper, compact=True)
     ]
     column_units = [_template_intro_units()]
     capacity = _template_column_capacity(overall_density)
-    section_number = 0
-    question_number = 1
 
     def push_block(block_xml: str, block_units: float) -> None:
         if column_units[-1] > 0 and column_units[-1] + block_units > capacity:
@@ -390,24 +385,16 @@ def _template_question_pages(
         columns[-1].append(block_xml)
         column_units[-1] += block_units
 
-    for question_type in _TEMPLATE_TYPE_ORDER:
-        grouped_questions = grouped.get(question_type) or []
-        if not grouped_questions:
-            continue
-
-        items = list(enumerate(grouped_questions, start=question_number))
-        question_number += len(items)
-        section_number += 1
-        section_density = _template_section_density(question_type, len(grouped_questions), len(questions), overall_density)
+    for section in _template_sections(grouped, total_questions=len(questions), overall_density=overall_density):
         heading_xml = _paragraph(
-            _template_section_heading(section_number, question_type, items),
+            _template_section_heading(section.number, section.question_type, section.items),
             bold=True,
-            size=20 if section_density == _DENSITY_DENSE else 22,
+            size=20 if section.density == _DENSITY_DENSE else 22,
             spacing_after=0,
         )
-        heading_units = _template_heading_units(section_density)
+        heading_units = _template_heading_units(section.density)
 
-        for item_index, item in enumerate(items):
+        for item_index, item in enumerate(section.items):
             question_xml = "".join(
                 _question_paragraphs_for_items(
                     [item],
@@ -415,22 +402,22 @@ def _template_question_pages(
                     images=images,
                     image_relationships=image_relationships,
                     localized=True,
-                    density=section_density,
+                    density=section.density,
                 )
             )
             block_xml = f"{heading_xml}{question_xml}" if item_index == 0 else question_xml
-            block_units = _template_question_units(item[1], include_answer=include_answer, density=section_density)
+            block_units = _template_question_units(item[1], include_answer=include_answer, density=section.density)
             if item_index == 0:
                 block_units += heading_units
             push_block(block_xml, block_units)
 
     if len(columns) == 1 and len(columns[0]) == 2:
-        columns[0].append(_paragraph("本栏暂无题目。", italic=True, size=20))
+        columns[0].append(_template_empty_column_paragraph())
 
     page_cells: list[tuple[str, str]] = []
     for index in range(0, len(columns), 2):
         left_xml = "".join(columns[index])
-        right_xml = "".join(columns[index + 1]) if index + 1 < len(columns) else _paragraph("本栏暂无题目。", italic=True, size=20)
+        right_xml = "".join(columns[index + 1]) if index + 1 < len(columns) else _template_empty_column_paragraph()
         page_cells.append((left_xml, right_xml))
     return page_cells, True
 
@@ -443,6 +430,54 @@ def _group_template_questions(questions: list[dict[str, Any]]) -> dict[str, list
         target_type = type_value if type_value in grouped else "short_answer"
         grouped[target_type].append(question)
     return grouped
+
+
+def _template_sections(
+    grouped: dict[str, list[dict[str, Any]]],
+    *,
+    total_questions: int,
+    overall_density: str,
+) -> list[_TemplateSection]:
+    sections: list[_TemplateSection] = []
+    section_number = 0
+    question_number = 1
+    for question_type in _TEMPLATE_TYPE_ORDER:
+        grouped_questions = grouped.get(question_type) or []
+        if not grouped_questions:
+            continue
+        items = list(enumerate(grouped_questions, start=question_number))
+        question_number += len(items)
+        section_number += 1
+        sections.append(
+            _TemplateSection(
+                number=section_number,
+                question_type=question_type,
+                items=items,
+                density=_template_section_density(question_type, len(grouped_questions), total_questions, overall_density),
+            )
+        )
+    return sections
+
+
+def _template_intro_paragraphs(paper: PaperEntity, *, compact: bool) -> list[str]:
+    return [
+        _paragraph(
+            f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
+            bold=True,
+            size=20 if compact else 22,
+            spacing_after=0 if compact else None,
+        ),
+        _paragraph(
+            _TEMPLATE_INSTRUCTIONS,
+            italic=True,
+            size=18 if compact else 20,
+            spacing_after=0 if compact else None,
+        ),
+    ]
+
+
+def _template_empty_column_paragraph() -> str:
+    return _paragraph(_TEMPLATE_EMPTY_COLUMN_TEXT, italic=True, size=20)
 
 
 def _template_intro_units() -> float:
@@ -484,59 +519,37 @@ def _template_question_cells(
     image_relationships: list[str],
     layout_density: str = _DENSITY_AUTO,
 ) -> tuple[str, str, bool]:
-    grouped: dict[str, list[dict[str, Any]]] = {qtype: [] for qtype in _TEMPLATE_TYPE_ORDER}
-    for question in questions:
-        question_type = question.get("type", "")
-        type_value = question_type.value if hasattr(question_type, "value") else str(question_type)
-        target_type = type_value if type_value in grouped else "short_answer"
-        grouped[target_type].append(question)
-
+    grouped = _group_template_questions(questions)
     overall_density = layout_density if layout_density != _DENSITY_AUTO else _template_overall_density(grouped)
     is_compact = overall_density in {_DENSITY_COMPACT, _DENSITY_DENSE}
-    left_parts = [
-        _paragraph(
-            f"科目：{paper.subject}    考试时长：{paper.duration}分钟    满分：{paper.totalMarks}分",
-            bold=True,
-            size=22,
-        ),
-        _paragraph("答题说明：请将答案填写在相应位置，计算与论述题请写出必要步骤。", italic=True, size=20),
-    ]
+    left_parts = _template_intro_paragraphs(paper, compact=False)
     right_parts: list[str] = []
-    section_number = 0
-    question_number = 1
 
-    for question_type in _TEMPLATE_TYPE_ORDER:
-        grouped_questions = grouped.get(question_type) or []
-        if not grouped_questions:
-            continue
-        items = list(enumerate(grouped_questions, start=question_number))
-        question_number += len(items)
-        section_number += 1
-        section_parts = left_parts if question_type in _TEMPLATE_LEFT_TYPES else right_parts
-        section_density = _template_section_density(question_type, len(grouped_questions), len(questions), overall_density)
+    for section in _template_sections(grouped, total_questions=len(questions), overall_density=overall_density):
+        section_parts = left_parts if section.question_type in _TEMPLATE_LEFT_TYPES else right_parts
         section_parts.append(
             _paragraph(
-                _template_section_heading(section_number, question_type, items),
+                _template_section_heading(section.number, section.question_type, section.items),
                 bold=True,
-                size=20 if section_density == _DENSITY_DENSE else 22 if section_density == _DENSITY_COMPACT else 24,
-                spacing_after=0 if section_density != _DENSITY_NORMAL else None,
+                size=20 if section.density == _DENSITY_DENSE else 22 if section.density == _DENSITY_COMPACT else 24,
+                spacing_after=0 if section.density != _DENSITY_NORMAL else None,
             )
         )
         section_parts.extend(
             _question_paragraphs_for_items(
-                items,
+                section.items,
                 include_answer=include_answer,
                 images=images,
                 image_relationships=image_relationships,
                 localized=True,
-                density=section_density,
+                density=section.density,
             )
         )
 
     if len(left_parts) == 2:
-        left_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
+        left_parts.append(_template_empty_column_paragraph())
     if not right_parts:
-        right_parts.append(_paragraph("本栏暂无题目。", italic=True, size=20))
+        right_parts.append(_template_empty_column_paragraph())
     return "".join(left_parts), "".join(right_parts), is_compact
 
 

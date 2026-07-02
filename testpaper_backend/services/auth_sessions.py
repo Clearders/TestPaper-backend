@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import cast
 
-from fastapi import HTTPException, Response, status
+from fastapi import Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from testpaper_backend.config import (
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import AuthSession, LoginRequest, RegisterRequest, UserRole
 from testpaper_backend.security import auth_error, password_hash, user_row_to_entity, verify_password
+from testpaper_backend.services.user_errors import username_exists
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
 logger = logging.getLogger(__name__)
@@ -27,13 +28,6 @@ logger = logging.getLogger(__name__)
 
 def _session_ttl() -> timedelta:
     return timedelta(hours=get_session_ttl_hours())
-
-
-def _username_exists() -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={"code": "USER_ALREADY_EXISTS", "message": "Username already exists"},
-    )
 
 
 def create_auth_session(session: Session, user_row: UserRow) -> tuple[str, AuthSession]:
@@ -70,7 +64,7 @@ def register_user(payload: RegisterRequest) -> tuple[str, AuthSession]:
     with SessionLocal() as session:
         existing = session.scalars(select(UserRow).where(UserRow.username == payload.username)).first()
         if existing is not None:
-            raise _username_exists()
+            raise username_exists()
 
         now = now_utc()
         user_row = UserRow(
@@ -88,7 +82,7 @@ def register_user(payload: RegisterRequest) -> tuple[str, AuthSession]:
             return create_auth_session(session, user_row)
         except IntegrityError as exc:
             session.rollback()
-            raise _username_exists() from exc
+            raise username_exists() from exc
 
 
 def set_auth_cookie(response: Response, token: str, expires_at: datetime) -> None:

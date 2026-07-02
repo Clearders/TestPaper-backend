@@ -331,6 +331,36 @@ class PaperStore(StoreMixin):
             rows.append(PaperQuestionRow(question_id=question_id, order_no=item.orderNo, marks=item.marks))
         return rows
 
+    @staticmethod
+    def _ensure_unique_question_rows(question_rows: list[PaperQuestionRow]) -> None:
+        seen_question_ids: set[int] = set()
+        for item in question_rows:
+            if item.question_id in seen_question_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
+                )
+            seen_question_ids.add(item.question_id)
+
+    @staticmethod
+    def _apply_row_values(row: PaperRow, row_kwargs: dict[str, Any], question_rows: list[PaperQuestionRow]) -> None:
+        for key, value in row_kwargs.items():
+            if key == "id":
+                continue
+            setattr(row, key, value)
+        row.questions = question_rows
+
+    @staticmethod
+    def _commit_paper(session) -> None:
+        try:
+            session.commit()
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
+            ) from exc
+
     def values(self) -> list[PaperEntity]:
         with SessionLocal() as session:
             rows = session.scalars(select(PaperRow).options(selectinload(PaperRow.questions)).order_by(PaperRow.id)).all()
@@ -368,14 +398,7 @@ class PaperStore(StoreMixin):
         payload = paper.model_copy(update={"id": paper_id}) if paper.id != paper_id else paper
         with SessionLocal() as session:
             question_rows = self._resolve_question_refs(payload.questions, session)
-            seen_question_ids: set[int] = set()
-            for item in question_rows:
-                if item.question_id in seen_question_ids:
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
-                    )
-                seen_question_ids.add(item.question_id)
+            self._ensure_unique_question_rows(question_rows)
             row_kwargs = paper_entity_to_row_kwargs(payload)
             row = session.get(PaperRow, paper_id)
             if row is None:
@@ -383,44 +406,19 @@ class PaperStore(StoreMixin):
                 row.questions = question_rows
                 session.add(row)
             else:
-                for key, value in row_kwargs.items():
-                    if key == "id":
-                        continue
-                    setattr(row, key, value)
-                row.questions = question_rows
-            try:
-                session.commit()
-            except IntegrityError as exc:
-                session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
-                ) from exc
+                self._apply_row_values(row, row_kwargs, question_rows)
+            self._commit_paper(session)
 
     def create(self, paper: PaperEntity) -> PaperEntity:
         with SessionLocal() as session:
             question_rows = self._resolve_question_refs(paper.questions, session)
-            seen_question_ids: set[int] = set()
-            for item in question_rows:
-                if item.question_id in seen_question_ids:
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail={"code": "VALIDATION_ERROR", "message": "Paper must not contain duplicate questions"},
-                    )
-                seen_question_ids.add(item.question_id)
+            self._ensure_unique_question_rows(question_rows)
             row_kwargs = paper_entity_to_row_kwargs(paper)
             row_kwargs.pop("id", None)
             row = PaperRow(**row_kwargs)
             row.questions = question_rows
             session.add(row)
-            try:
-                session.commit()
-            except IntegrityError as exc:
-                session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={"code": "INTEGRITY_ERROR", "message": "Paper references a question that no longer exists"},
-                ) from exc
+            self._commit_paper(session)
             session.refresh(row)
             return paper_row_to_entity(row)
 
