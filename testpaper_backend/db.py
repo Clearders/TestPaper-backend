@@ -96,6 +96,60 @@ class PaperQuestionRow(Base):
     paper: Mapped[PaperRow] = relationship(back_populates="questions")
 
 
+class PaperDraftRow(Base):
+    __tablename__ = "paper_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    owner_id: Mapped[int | None] = mapped_column("ownerId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    review_status: Mapped[str] = mapped_column("reviewStatus", String(32), nullable=False, default="draft", index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_by: Mapped[int | None] = mapped_column("updatedBy", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    owner: Mapped[UserRow | None] = relationship(foreign_keys=[owner_id])
+    updated_by_user: Mapped[UserRow | None] = relationship(foreign_keys=[updated_by])
+    collaborators: Mapped[list[PaperDraftCollaboratorRow]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+    )
+    comments: Mapped[list[PaperDraftCommentRow]] = relationship(
+        back_populates="draft",
+        cascade="all, delete-orphan",
+        order_by="PaperDraftCommentRow.created_at",
+    )
+
+
+class PaperDraftCollaboratorRow(Base):
+    __tablename__ = "paper_draft_collaborators"
+
+    draft_id: Mapped[int] = mapped_column("draftId", ForeignKey("paper_drafts.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    draft: Mapped[PaperDraftRow] = relationship(back_populates="collaborators")
+    user: Mapped[UserRow] = relationship()
+
+
+class PaperDraftCommentRow(Base):
+    __tablename__ = "paper_draft_comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
+    draft_id: Mapped[int] = mapped_column("draftId", ForeignKey("paper_drafts.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_public_id: Mapped[str | None] = mapped_column("questionPublicId", String(36), nullable=True, index=True)
+    message: Mapped[str] = mapped_column(String(1000), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
+    author_id: Mapped[int | None] = mapped_column("authorId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    draft: Mapped[PaperDraftRow] = relationship(back_populates="comments")
+    author: Mapped[UserRow | None] = relationship()
+
+
 class QuestionRevisionRow(Base):
     __tablename__ = "question_revisions"
 

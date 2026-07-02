@@ -82,6 +82,7 @@ class _TemplateSection(NamedTuple):
     items: list[tuple[int, dict[str, Any]]]
     density: str
 
+
 _MATH_SYMBOLS = {
     "alpha": "\u03b1",
     "beta": "\u03b2",
@@ -372,9 +373,7 @@ def _template_question_pages(
         )
         return [(left_cell_xml, right_cell_xml)], compact_layout
 
-    columns: list[list[str]] = [
-        _template_intro_paragraphs(paper, compact=True)
-    ]
+    columns: list[list[str]] = [_template_intro_paragraphs(paper, compact=True)]
     column_units = [_template_intro_units()]
     capacity = _template_column_capacity(overall_density)
 

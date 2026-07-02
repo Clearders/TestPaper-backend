@@ -23,6 +23,23 @@ from testpaper_backend.schemas.common import (
     PaginatedResponse,
     PaginationInfo,
 )
+from testpaper_backend.schemas.draft import (
+    DraftAccessRole,
+    DraftCollaboratorRole,
+    DraftCommentStatus,
+    DraftReviewStatus,
+    DraftUserRef,
+    PaperDraftCollaboratorCreate,
+    PaperDraftCollaboratorEntity,
+    PaperDraftCollaboratorUpdate,
+    PaperDraftCommentCreate,
+    PaperDraftCommentEntity,
+    PaperDraftCommentUpdate,
+    PaperDraftCreate,
+    PaperDraftDetail,
+    PaperDraftSummary,
+    PaperDraftUpdate,
+)
 from testpaper_backend.schemas.paper import (
     ExportPreviewRequest,
     GenerationTypeTarget,

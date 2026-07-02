@@ -95,6 +95,32 @@ def _request(path: str = "/api/v1/questions/question-1/corrections/1") -> Reques
     return request
 
 
+def _draft_choice_question(index: int) -> dict[str, object]:
+    return {
+        "questionPublicId": f"question-{index}",
+        "orderNo": index,
+        "marks": 10,
+        "type": "single_choice",
+        "subjects": ["Math"],
+        "difficulty": "medium",
+        "tags": ["edited"],
+        "text": f"Auto density question {index}.",
+        "options": ["A", "B", "C", "D"],
+        "answer": f"Answer {index}",
+        "hasLatex": False,
+        "scoreWeight": 1,
+    }
+
+
+def _assert_docx_download_contract(response, expected_filename: str, expected_layout_density: str) -> None:
+    encoded_filename = expected_filename.replace(" ", "%20")
+    assert response.headers["content-disposition"] == (
+        f"attachment; filename=\"{expected_filename}\"; filename*=UTF-8''{encoded_filename}"
+    )
+    assert response.headers["x-export-format"] == "docx"
+    assert response.headers["x-layout-density"] == expected_layout_density
+
+
 def test_trimmed_required_fields_cannot_be_empty() -> None:
     with pytest.raises(ValidationError):
         RegisterRequest(username="   ", displayName="Name", password="password1")
@@ -651,6 +677,9 @@ def test_draft_download_uses_submitted_question_snapshot() -> None:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: teacher
     app.include_router(paper_routes.router)
+    questions = [_draft_choice_question(index) for index in range(1, 16)]
+    questions[0]["text"] = "Edited local wording"
+    questions[0]["answer"] = "Edited answer"
 
     response = TestClient(app).post(
         "/api/v1/papers/draft-download",
@@ -661,33 +690,65 @@ def test_draft_download_uses_submitted_question_snapshot() -> None:
             "totalMarks": 10,
             "includeAnswer": True,
             "questionOrder": "paper",
-            "layoutDensity": "normal",
-            "questions": [
-                {
-                    "questionPublicId": "question-1",
-                    "orderNo": 1,
-                    "marks": 10,
-                    "type": "single_choice",
-                    "subjects": ["Math"],
-                    "difficulty": "medium",
-                    "tags": ["edited"],
-                    "text": "Edited local wording",
-                    "options": ["A", "B"],
-                    "answer": "Edited answer",
-                    "hasLatex": False,
-                    "scoreWeight": 1,
-                }
-            ],
+            "layoutDensity": "auto",
+            "questions": questions,
         },
     )
 
     assert response.status_code == 200
+    _assert_docx_download_contract(response, "Draft Export.docx", "dense")
     assert response.headers["x-draft-export"] == "true"
     assert response.content.startswith(b"PK\x03\x04")
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
         document_xml = archive.read("word/document.xml").decode("utf-8")
     assert "Edited local wording" in document_xml
     assert "Edited answer" in document_xml
+
+
+def test_saved_paper_download_reports_docx_headers_and_effective_layout_density(monkeypatch) -> None:
+    teacher = _user(15, UserRole.teacher)
+    paper = PaperEntity(
+        id=1,
+        publicId="paper-headers",
+        title="Saved Export",
+        subject="Math",
+        duration=60,
+        totalMarks=150,
+        questions=[],
+        ownerId=teacher.id,
+        createdAt=datetime(2026, 6, 14, tzinfo=UTC),
+        updatedAt=datetime(2026, 6, 14, tzinfo=UTC),
+    )
+    export_calls = []
+
+    def fake_build_export_questions(paper_arg, question_order, include_answer):
+        export_calls.append((paper_arg.publicId, question_order.value, include_answer))
+        return [_draft_choice_question(index) for index in range(1, 16)]
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: teacher
+    app.include_router(paper_routes.router)
+    monkeypatch.setattr(paper_routes, "get_paper_or_404", lambda public_id: paper)
+    monkeypatch.setattr(paper_routes, "build_export_questions", fake_build_export_questions)
+
+    response = TestClient(app).get(
+        "/api/v1/papers/paper-headers/download",
+        params={
+            "format": "docx",
+            "questionOrder": "paper",
+            "includeAnswer": "true",
+            "layoutDensity": "auto",
+        },
+    )
+
+    assert response.status_code == 200
+    _assert_docx_download_contract(response, "Saved Export.docx", "dense")
+    assert export_calls == [("paper-headers", "paper", True)]
+    assert response.content.startswith(b"PK\x03\x04")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Auto density question 1." in document_xml
+    assert "Answer 1" in document_xml
 
 
 def test_recent_username_change_is_rejected_in_profile_service(monkeypatch) -> None:
