@@ -167,6 +167,35 @@ def test_editor_can_request_review_but_cannot_approve(monkeypatch: pytest.Monkey
     assert exc_info.value.status_code == 403
 
 
+def test_owner_cannot_approve_draft_with_open_comments(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = _draft_row(owner_id=1, revision=3)
+    row.comments = [
+        SimpleNamespace(
+            id=5,
+            public_id="comment-1",
+            question_public_id=None,
+            message="Needs review",
+            status="open",
+            author_id=2,
+            author=_user_row(2),
+            created_at=datetime(2026, 7, 2, tzinfo=UTC),
+            updated_at=datetime(2026, 7, 2, tzinfo=UTC),
+        )
+    ]
+    _patch_session(monkeypatch, row)
+
+    with pytest.raises(HTTPException) as exc_info:
+        drafts.update_shared_draft(
+            "draft-1",
+            PaperDraftUpdate(baseRevision=3, reviewStatus=DraftReviewStatus.approved),
+            _user(1),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "DRAFT_OPEN_COMMENTS"
+    assert exc_info.value.detail["openCommentCount"] == 1
+
+
 def test_editor_can_update_state_when_name_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     row = _draft_row(owner_id=1, revision=3, collaborator_role="editor", collaborator_id=2)
     _patch_session(monkeypatch, row)

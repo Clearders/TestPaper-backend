@@ -183,6 +183,7 @@ Shared drafts use paper permissions plus draft-level roles:
 - Editors can update draft content and move a draft to `in_review`.
 - Viewers can read and comment but cannot edit content.
 - Admins can access every shared draft.
+- Draft approval is blocked until all open draft comments are resolved.
 
 ## Security Headers
 

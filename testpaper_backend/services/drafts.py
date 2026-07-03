@@ -49,6 +49,17 @@ def _revision_conflict(current_revision: int) -> HTTPException:
     )
 
 
+def _open_comments_block_approval(open_count: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "DRAFT_OPEN_COMMENTS",
+            "message": "Resolve open comments before approving the draft",
+            "openCommentCount": open_count,
+        },
+    )
+
+
 def user_ref_from_row(row: UserRow | None) -> DraftUserRef | None:
     if row is None:
         return None
@@ -239,6 +250,9 @@ def update_shared_draft(draft_public_id: str, payload: PaperDraftUpdate, current
             row.state = deepcopy(payload.state)
 
         if payload.reviewStatus is not None:
+            open_comment_count = sum(1 for comment in row.comments if comment.status == DraftCommentStatus.open.value)
+            if payload.reviewStatus == DraftReviewStatus.approved and open_comment_count:
+                raise _open_comments_block_approval(open_comment_count)
             if role in {DraftAccessRole.owner, DraftAccessRole.admin} or (
                 role == DraftAccessRole.editor and payload.reviewStatus == DraftReviewStatus.in_review
             ):
