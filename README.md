@@ -3,9 +3,9 @@
 > Version: 0.1.0  
 > Framework: FastAPI 0.136  
 > Python: 3.14+  
-> Last updated: 2026-06-28
+> Last updated: 2026-07-02
 
-FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence, Redis for cache/Celery broker, and Celery for asynchronous jobs.
+FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence including collaborative paper drafts, Redis for cache/Celery broker, and Celery for asynchronous jobs.
 
 ## Tech Stack
 
@@ -95,6 +95,7 @@ TestPaper-backend/
     api/
       routes/
         auth.py
+        drafts.py
         health.py
         images.py
         meta.py
@@ -118,6 +119,7 @@ TestPaper-backend/
     schemas/
       auth.py
       common.py
+      draft.py
       paper.py
       question.py
     services/
@@ -143,6 +145,7 @@ All application routes are under `/api/v1` except `GET /`. For the full contract
 | Users | `/api/v1/users` | 4 | Admin user management |
 | Questions | `/api/v1/questions` | 12 | Question CRUD, search, personal bank, revisions, corrections |
 | Papers | `/api/v1/papers` | 9 | Paper CRUD, genetic generation, DOCX download, export preview, question management |
+| Drafts | `/api/v1/drafts` | 11 | Shared paper drafts, collaborators, comments, review workflow, DOCX download |
 | Images | `/api/v1/images` | 1 | Base64 PNG question image upload |
 | Meta | `/api/v1/meta` | 2 | Subject and tag metadata |
 | Tasks | `/api/v1/tasks` | 7 | Celery task dispatch and polling |
@@ -172,6 +175,15 @@ All application routes are under `/api/v1` except `GET /`. For the full contract
 
 Question and paper write operations also enforce ownership where applicable. Admins bypass owner checks; teachers can mutate their own content.
 
+Shared drafts use paper permissions plus draft-level roles:
+
+- Creating a shared draft requires `papers:write`.
+- Listing, reading, commenting on, and downloading accessible drafts require `papers:read`.
+- Owners and admins can rename, delete, change any review status, and manage collaborators.
+- Editors can update draft content and move a draft to `in_review`.
+- Viewers can read and comment but cannot edit content.
+- Admins can access every shared draft.
+
 ## Security Headers
 
 - Backend API responses emit a restrictive CSP for API surfaces.
@@ -187,8 +199,9 @@ Question and paper write operations also enforce ownership where applicable. Adm
 - Manual paper assembly with question order and marks.
 - Genetic algorithm paper generation with multi-type targets, multi-subject candidate filtering, difficulty coefficient, required/preferred tags, and own-question filtering.
 - DOCX export with images, Word-compatible math, answer visibility, question ordering, and layout density controls.
+- Shared paper drafts with optimistic revision checks, collaborator roles, comments, review statuses, and cloud draft DOCX download.
 - Celery tasks for worker ping, paper export, question validation, session cleanup, and stats.
-- Realtime WebSocket broadcasts for question and paper changes.
+- Realtime WebSocket broadcasts for question, paper, and shared draft changes.
 
 ## Response Format
 
@@ -224,6 +237,8 @@ Error response:
 
 `204 No Content` endpoints return no body. DOCX download endpoints return binary content directly.
 
+Cloud draft downloads use `GET /api/v1/drafts/{draft_public_id}/download`. The response is a DOCX binary built from the draft's stored `state.paper` snapshot, `state.exportMode`, `state.layoutDensity`, and `state.includeAnswersInExport`. Answers are included only when the draft asks for them and the caller has `answers:read`. The endpoint does not create or update a saved paper and returns `X-Cloud-Draft-Export: true`.
+
 ## WebSocket Events
 
 | Event | Trigger |
@@ -237,6 +252,10 @@ Error response:
 | `paper.questions.added` | Questions added to paper |
 | `paper.question.removed` | Question removed from paper |
 | `paper.questions.reordered` | Paper question order changed |
+| `draft.updated` | Shared draft created, edited, renamed, or sharing changed |
+| `draft.review.updated` | Shared draft review status changed |
+| `draft.comment.created` | Shared draft comment added |
+| `draft.comment.updated` | Shared draft comment edited or resolved |
 | `pong` | Reply to client `{ "event": "ping" }` |
 
 Per-IP WebSocket limit: 10 concurrent connections.
@@ -255,7 +274,9 @@ Validate migration upgrade/downgrade structure without a running database:
 python scripts/simulate_migrations.py
 ```
 
-Current migration history has 14 versions, from initial users/questions/papers/auth-token tables through public IDs, search indexes, revisions/corrections, profile fields, paper ownership, and disabling unchanged legacy demo accounts.
+Current migration history has 15 versions, from initial users/questions/papers/auth-token tables through public IDs, search indexes, revisions/corrections, profile fields, paper ownership, disabling unchanged legacy demo accounts, and the July 2 shared paper draft tables.
+
+The July 2 collaborative draft release adds `paper_drafts`, `paper_draft_collaborators`, and `paper_draft_comments` in revision `20260702_0015`. Run `alembic upgrade head` before deploying frontend code that calls `/api/v1/drafts`.
 
 Fresh databases do not receive default users. Run `python scripts/bootstrap_admin.py` after migrating to create the first administrator. The script can also read `TESTPAPER_ADMIN_USERNAME`, `TESTPAPER_ADMIN_DISPLAY_NAME`, and `TESTPAPER_ADMIN_PASSWORD` for non-interactive provisioning.
 
