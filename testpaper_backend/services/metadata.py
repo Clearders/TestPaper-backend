@@ -24,7 +24,7 @@ def _decode_cached_values(cached: object) -> list[str] | None:
         return None
     try:
         payload = json.loads(cached)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if isinstance(payload, list) and all(isinstance(item, str) for item in payload):
         return payload

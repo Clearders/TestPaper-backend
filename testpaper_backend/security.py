@@ -27,7 +27,7 @@ def _verify_pbkdf2(password: str, stored_hash: str) -> bool:
             return False
         digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations_text)).hex()
         return secrets.compare_digest(digest, expected)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return False
 
 

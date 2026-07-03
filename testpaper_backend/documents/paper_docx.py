@@ -850,7 +850,7 @@ def _essay_blank_height_twips(blank_space: Any) -> int:
 def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         parsed = fallback
     return max(minimum, min(maximum, parsed))
 

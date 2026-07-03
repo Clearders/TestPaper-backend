@@ -2,7 +2,7 @@
 
 > Version: 0.1.0  
 > Framework: FastAPI 0.136  
-> Python: 3.14+  
+> Python: 3.13+  
 > Last updated: 2026-07-02
 
 FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence including collaborative paper drafts, Redis for cache/Celery broker, and Celery for asynchronous jobs.
@@ -11,7 +11,7 @@ FastAPI backend for the TestPapers test paper management and auto-generation sys
 
 | Technology | Purpose |
 | --- | --- |
-| Python 3.14+ | Runtime |
+| Python 3.13+ | Runtime |
 | FastAPI | REST and WebSocket framework |
 | SQLAlchemy 2.0 | ORM |
 | PostgreSQL | Primary database |
@@ -254,6 +254,7 @@ Cloud draft downloads use `GET /api/v1/drafts/{draft_public_id}/download`. The r
 | `paper.question.removed` | Question removed from paper |
 | `paper.questions.reordered` | Paper question order changed |
 | `draft.updated` | Shared draft created, edited, renamed, or sharing changed |
+| `draft.deleted` | Shared draft deleted |
 | `draft.review.updated` | Shared draft review status changed |
 | `draft.comment.created` | Shared draft comment added |
 | `draft.comment.updated` | Shared draft comment edited or resolved |

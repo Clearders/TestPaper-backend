@@ -347,6 +347,42 @@ def test_websocket_token_is_not_accepted_from_query_string() -> None:
     assert get_websocket_token(websocket) is None
 
 
+def test_delete_cloud_draft_broadcasts_deleted_event(monkeypatch) -> None:
+    teacher = _user(18, UserRole.teacher)
+    delete_calls = []
+    background_calls = []
+    broadcast = object()
+
+    class FakeBackgroundTasks:
+        def add_task(self, func, *args, **kwargs):
+            background_calls.append((func, args, kwargs))
+
+    monkeypatch.setattr(
+        draft_routes,
+        "delete_shared_draft",
+        lambda draft_public_id, current_user: delete_calls.append((draft_public_id, current_user.id)),
+    )
+    monkeypatch.setattr(draft_routes, "realtime", SimpleNamespace(broadcast=broadcast))
+
+    response = draft_routes.delete_draft(FakeBackgroundTasks(), "draft-cloud", teacher, None)
+
+    assert response.status_code == 204
+    assert delete_calls == [("draft-cloud", teacher.id)]
+    assert background_calls == [
+        (
+            broadcast,
+            (
+                "draft.deleted",
+                {
+                    "draftId": "draft-cloud",
+                    "actorId": teacher.id,
+                },
+            ),
+            {},
+        )
+    ]
+
+
 def test_production_security_configuration_is_fail_closed(monkeypatch) -> None:
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("AUTH_COOKIE_SECURE", "true")

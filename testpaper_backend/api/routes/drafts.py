@@ -94,6 +94,13 @@ def _draft_event_payload(detail: PaperDraftDetail, actor_id: int) -> dict[str, A
     }
 
 
+def _draft_deleted_event_payload(draft_public_id: str, actor_id: int) -> dict[str, Any]:
+    return {
+        "draftId": draft_public_id,
+        "actorId": actor_id,
+    }
+
+
 @router.get("", response_model=Envelope[list[PaperDraftSummary]])
 def list_drafts(request: Request, current_user: PapersReadDep):
     drafts = list_accessible_drafts(current_user)
@@ -136,8 +143,9 @@ def update_draft(
 
 
 @router.delete("/{draft_public_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_draft(draft_public_id: str, current_user: PapersReadDep, _: RateLimitWriteDep):
+def delete_draft(background_tasks: BackgroundTasks, draft_public_id: str, current_user: PapersReadDep, _: RateLimitWriteDep):
     delete_shared_draft(draft_public_id, current_user)
+    background_tasks.add_task(realtime.broadcast, "draft.deleted", _draft_deleted_event_payload(draft_public_id, current_user.id))
     logger.info("Shared draft deleted: %s", draft_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
