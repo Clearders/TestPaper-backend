@@ -4,6 +4,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 from fastapi import FastAPI, HTTPException, Response
@@ -12,12 +13,14 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 from testpaper_backend.api.routes import auth as auth_routes
+from testpaper_backend.api.routes import drafts as draft_routes
 from testpaper_backend.api.routes import papers as paper_routes
 from testpaper_backend.api.routes import questions as question_routes
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts
 from testpaper_backend.core.csrf import CSRFMiddleware, set_csrf_cookie
 from testpaper_backend.core.factory import create_app
 from testpaper_backend.core.lifespan import lifespan
+from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE
 from testpaper_backend.repositories import question_row_to_entity
 from testpaper_backend.schemas import (
     ROLE_PERMISSIONS,
@@ -25,6 +28,9 @@ from testpaper_backend.schemas import (
     CorrectionCategory,
     CorrectionStatus,
     Difficulty,
+    DraftAccessRole,
+    DraftReviewStatus,
+    PaperDraftDetail,
     PaperEntity,
     PaperGenerateRequest,
     PasswordChange,
@@ -112,11 +118,34 @@ def _draft_choice_question(index: int) -> dict[str, object]:
     }
 
 
-def _assert_docx_download_contract(response, expected_filename: str, expected_layout_density: str) -> None:
-    encoded_filename = expected_filename.replace(" ", "%20")
-    assert response.headers["content-disposition"] == (
-        f"attachment; filename=\"{expected_filename}\"; filename*=UTF-8''{encoded_filename}"
+def _draft_detail(
+    *, state: dict, name: str = "Cloud Draft Export", access_role: DraftAccessRole = DraftAccessRole.owner
+) -> PaperDraftDetail:
+    now = datetime(2026, 7, 2, tzinfo=UTC)
+    return PaperDraftDetail(
+        id=99,
+        publicId="draft-cloud",
+        name=name,
+        owner=None,
+        accessRole=access_role,
+        reviewStatus=DraftReviewStatus.draft,
+        revision=3,
+        collaboratorCount=0,
+        commentCount=0,
+        openCommentCount=0,
+        updatedBy=None,
+        createdAt=now,
+        updatedAt=now,
+        state=state,
+        collaborators=[],
+        comments=[],
     )
+
+
+def _assert_docx_download_contract(response, expected_filename: str, expected_layout_density: str) -> None:
+    encoded_filename = quote(expected_filename)
+    assert response.headers["content-type"] == DOCX_MEDIA_TYPE
+    assert response.headers["content-disposition"] == (f"attachment; filename=\"{expected_filename}\"; filename*=UTF-8''{encoded_filename}")
     assert response.headers["x-export-format"] == "docx"
     assert response.headers["x-layout-density"] == expected_layout_density
 
@@ -749,6 +778,88 @@ def test_saved_paper_download_reports_docx_headers_and_effective_layout_density(
         document_xml = archive.read("word/document.xml").decode("utf-8")
     assert "Auto density question 1." in document_xml
     assert "Answer 1" in document_xml
+
+
+def test_cloud_draft_download_reports_docx_headers_and_effective_layout_density(monkeypatch) -> None:
+    teacher = _user(16, UserRole.teacher)
+    questions = [_draft_choice_question(index) for index in range(1, 16)]
+    detail = _draft_detail(
+        state={
+            "includeAnswersInExport": True,
+            "exportMode": "paper",
+            "layoutDensity": "auto",
+            "paper": {
+                "title": "Cloud Draft Export",
+                "subject": "Math",
+                "duration": 60,
+                "totalMarks": 10,
+                "questions": questions,
+            },
+        },
+    )
+    calls = []
+
+    def fake_get_shared_draft(draft_public_id, current_user):
+        calls.append((draft_public_id, current_user.publicId))
+        return detail
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: teacher
+    app.include_router(draft_routes.router)
+    monkeypatch.setattr(draft_routes, "get_shared_draft", fake_get_shared_draft)
+
+    response = TestClient(app).get("/api/v1/drafts/draft-cloud/download")
+
+    assert response.status_code == 200
+    _assert_docx_download_contract(response, "Cloud Draft Export.docx", "dense")
+    assert response.headers["x-cloud-draft-export"] == "true"
+    assert calls == [("draft-cloud", teacher.publicId)]
+    assert response.content.startswith(b"PK\x03\x04")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Auto density question 1." in document_xml
+    assert "Answer 1" in document_xml
+
+
+def test_cloud_draft_download_redacts_answers_for_viewers(monkeypatch) -> None:
+    viewer = _user(17, UserRole.viewer)
+    question = _draft_choice_question(1)
+    question["text"] = "Viewer visible prompt."
+    question["answer"] = "viewer-download-secret"
+    question["originalQuestion"] = {"answer": "nested-original-secret"}
+    detail = _draft_detail(
+        access_role=DraftAccessRole.viewer,
+        name="Viewer Draft",
+        state={
+            "includeAnswersInExport": True,
+            "exportMode": "paper",
+            "layoutDensity": "normal",
+            "paper": {
+                "title": "Viewer Draft",
+                "subject": "Math",
+                "duration": 45,
+                "totalMarks": 5,
+                "questions": [question],
+            },
+        },
+    )
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: viewer
+    app.include_router(draft_routes.router)
+    monkeypatch.setattr(draft_routes, "get_shared_draft", lambda draft_public_id, current_user: detail)
+
+    response = TestClient(app).get("/api/v1/drafts/draft-cloud/download")
+
+    assert response.status_code == 200
+    _assert_docx_download_contract(response, "Viewer Draft.docx", "normal")
+    assert response.headers["x-cloud-draft-export"] == "true"
+    assert response.content.startswith(b"PK\x03\x04")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Viewer visible prompt." in document_xml
+    assert "viewer-download-secret" not in document_xml
+    assert "nested-original-secret" not in document_xml
 
 
 def test_recent_username_change_is_rejected_in_profile_service(monkeypatch) -> None:
