@@ -73,3 +73,45 @@ def test_admin_task_access_does_not_require_redis(monkeypatch: pytest.MonkeyPatc
     )
 
     task_access.ensure_task_access("task-1", _user(1, UserRole.admin))
+
+
+def test_dispatched_task_payload_merges_extra_identifiers() -> None:
+    payload = task_access.dispatched_task_payload(SimpleNamespace(id="task-1"), paperId="paper-1")
+
+    assert payload == {"taskId": "task-1", "status": "dispatched", "paperId": "paper-1"}
+
+
+def test_task_status_payload_serializes_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAsyncResult:
+        def __init__(self, task_id: str, app: object) -> None:
+            self.task_id = task_id
+            self.app = app
+            self.state = "SUCCESS"
+            self.result = {"ok": True}
+            self.info = None
+
+    monkeypatch.setattr(task_access, "AsyncResult", FakeAsyncResult)
+
+    assert task_access.task_status_payload("task-1") == {
+        "taskId": "task-1",
+        "status": "SUCCESS",
+        "result": {"ok": True},
+    }
+
+
+def test_task_status_payload_serializes_failure_without_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeAsyncResult:
+        def __init__(self, task_id: str, app: object) -> None:
+            self.task_id = task_id
+            self.app = app
+            self.state = "FAILURE"
+            self.result = None
+            self.info = None
+
+    monkeypatch.setattr(task_access, "AsyncResult", FakeAsyncResult)
+
+    assert task_access.task_status_payload("task-1") == {
+        "taskId": "task-1",
+        "status": "FAILURE",
+        "error": "Unknown error",
+    }
