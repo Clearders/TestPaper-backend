@@ -3,7 +3,7 @@
 > Version: 0.1.0  
 > Framework: FastAPI 0.136  
 > Python: 3.13+  
-> Last updated: 2026-07-02
+> Last updated: 2026-07-05
 
 FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence including collaborative paper drafts, Redis for cache/Celery broker, and Celery for asynchronous jobs.
 
@@ -144,7 +144,7 @@ All application routes are under `/api/v1` except `GET /`. For the full contract
 | WebSocket | `/api/v1/ws` | 1 | Authenticated realtime events |
 | Users | `/api/v1/users` | 4 | Admin user management |
 | Questions | `/api/v1/questions` | 12 | Question CRUD, search, personal bank, revisions, corrections |
-| Papers | `/api/v1/papers` | 9 | Paper CRUD, genetic generation, DOCX download, export preview, question management |
+| Papers | `/api/v1/papers` | 11 | Paper CRUD, genetic generation, DOCX download, export preview, question management |
 | Drafts | `/api/v1/drafts` | 11 | Shared paper drafts, collaborators, comments, review workflow, DOCX download |
 | Images | `/api/v1/images` | 1 | Base64 PNG question image upload |
 | Meta | `/api/v1/meta` | 2 | Subject and tag metadata |
@@ -197,7 +197,7 @@ Shared drafts use paper permissions plus draft-level roles:
 - User registration, login, session refresh, profile updates, password change, avatar upload, and account deletion.
 - Admin user management.
 - Question search, filtering, CRUD, personal bank, revision history, correction workflow, and PNG image attachment.
-- Manual paper assembly with question order and marks.
+- Manual paper assembly with question add/remove, full list replacement, ordering, and marks.
 - Genetic algorithm paper generation with multi-type targets, multi-subject candidate filtering, difficulty coefficient, required/preferred tags, and own-question filtering.
 - DOCX export with images, Word-compatible math, answer visibility, question ordering, and layout density controls.
 - Shared paper drafts with optimistic revision checks, collaborator roles, comments, review statuses, and cloud draft DOCX download.
