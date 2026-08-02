@@ -8,6 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
+from testpaper_backend.core.openapi import BINARY_DOWNLOAD_RESPONSES
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
 from testpaper_backend.schemas import (
@@ -116,7 +117,7 @@ def generate_paper(
     )
 
 
-@router.post("/draft-download")
+@router.post("/draft-download", response_class=Response, responses=BINARY_DOWNLOAD_RESPONSES)
 def download_draft_paper(
     payload: PaperDraftDownloadRequest,
     current_user: PapersReadDep,
@@ -271,7 +272,7 @@ def export_preview(
     )
 
 
-@router.get("/{paper_public_id}/download")
+@router.get("/{paper_public_id}/download", response_class=Response, responses=BINARY_DOWNLOAD_RESPONSES)
 def download_paper(
     paper_public_id: str,
     current_user: PapersReadDep,

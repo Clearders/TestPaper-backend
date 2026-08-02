@@ -9,6 +9,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from testpaper_backend.config import get_cors_origins, get_trusted_hosts, is_production
 from testpaper_backend.core.csrf import CSRFMiddleware
+from testpaper_backend.core.openapi import API_CONTRACT_TITLE, API_CONTRACT_VERSION, OPENAPI_VERSION, stable_operation_id
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator[None]]
 
@@ -16,9 +17,11 @@ Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None] | AsyncIterator
 def create_app(*, lifespan: Lifespan) -> FastAPI:
     production = is_production()
     app = FastAPI(
-        title="TestPaper Backend",
-        version="1.0.0",
+        title=API_CONTRACT_TITLE,
+        version=API_CONTRACT_VERSION,
+        openapi_version=OPENAPI_VERSION,
         lifespan=lifespan,
+        generate_unique_id_function=stable_operation_id,
         docs_url=None if production else "/docs",
         redoc_url=None if production else "/redoc",
         openapi_url=None if production else "/openapi.json",

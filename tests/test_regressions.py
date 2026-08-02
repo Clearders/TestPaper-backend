@@ -412,6 +412,7 @@ def test_bearer_requests_do_not_require_cookie_csrf() -> None:
     cookie_response = client.post("/write")
     assert cookie_response.status_code == 403
     assert cookie_response.json()["error"]["code"] == "CSRF_MISSING"
+    assert cookie_response.json()["meta"]["requestId"] == cookie_response.headers["x-request-id"]
 
     bearer_response = client.post(
         "/write",

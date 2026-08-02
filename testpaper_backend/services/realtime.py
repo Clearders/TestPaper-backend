@@ -11,6 +11,7 @@ from fastapi import WebSocket
 
 from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.redis_client import get_async_redis
+from testpaper_backend.schemas.realtime import serialize_server_message
 
 MAX_CONNECTIONS_PER_IP = 10
 BROADCAST_CHANNEL = "testpaper:broadcast"
@@ -57,6 +58,7 @@ class RealtimeConnectionManager:
                             payload = data["payload"]
                             if not isinstance(event, str) or not isinstance(payload, dict):
                                 raise ValueError("Realtime event must contain a string event and object payload")
+                            serialize_server_message(event, payload)
                         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                             logger.warning("Ignoring malformed realtime event", exc_info=True)
                             continue
@@ -81,7 +83,7 @@ class RealtimeConnectionManager:
     async def _local_send(self, event: str, payload: dict[str, Any]) -> None:
         if not self._connections:
             return
-        message = json.dumps({"event": event, "payload": payload}, default=str)
+        message = json.dumps(serialize_server_message(event, payload), ensure_ascii=False, separators=(",", ":"))
         stale: list[WebSocket] = []
         for websocket in list(self._connections):
             try:
@@ -111,10 +113,11 @@ class RealtimeConnectionManager:
                 del self._ip_connections[ip]
 
     async def broadcast(self, event: str, payload: dict[str, Any]) -> None:
+        public_message = serialize_server_message(event, payload)
         await self._local_send(event, payload)
         try:
             async_redis = get_async_redis()
-            message = json.dumps({"event": event, "payload": payload, "source": self._source_id}, default=str)
+            message = json.dumps({**public_message, "source": self._source_id}, ensure_ascii=False, separators=(",", ":"))
             await async_redis.publish(BROADCAST_CHANNEL, message)
         except Exception:
             logger.warning("Realtime Redis publish failed; local clients were still notified", exc_info=True)

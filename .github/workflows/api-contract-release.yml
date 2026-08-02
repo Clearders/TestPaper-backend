@@ -1,0 +1,41 @@
+name: API Contract Release
+
+on:
+  push:
+    tags: [api-v*]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Backend contract dependencies
+        run: python -m pip install -e .
+
+      - name: Verify tagged contract
+        run: python scripts/export_openapi.py --check --expect-version "${GITHUB_REF_NAME#api-v}"
+
+      - name: Build checksum
+        run: sha256sum contracts/openapi.json > openapi.json.sha256
+
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            contracts/openapi.json openapi.json.sha256 \
+            --verify-tag \
+            --title "TestPapers Cloud API ${GITHUB_REF_NAME#api-v}" \
+            --notes "Canonical OpenAPI contract generated from $GITHUB_SHA."

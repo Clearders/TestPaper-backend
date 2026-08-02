@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from pydantic import ValidationError
 
 from testpaper_backend.config import get_cors_origins
+from testpaper_backend.schemas.realtime import serialize_server_message, validate_client_message
 from testpaper_backend.security import get_user_from_token
 from testpaper_backend.services.realtime import get_websocket_token, realtime
 from testpaper_backend.time_utils import now_utc
@@ -34,24 +36,29 @@ async def websocket_endpoint(websocket: WebSocket):
     await realtime.connect(websocket)
     try:
         await websocket.send_json(
-            {
-                "event": "auth.connected",
-                "payload": {
+            serialize_server_message(
+                "auth.connected",
+                {
                     "user": current_user.model_dump(mode="json"),
-                    "serverTime": now_utc().isoformat(),
+                    "serverTime": now_utc(),
                 },
-            }
+            )
         )
         while True:
             raw_message = await websocket.receive_text()
             try:
                 message = json.loads(raw_message)
             except json.JSONDecodeError:
-                await websocket.send_json({"event": "error", "payload": {"message": "Invalid JSON message"}})
+                await websocket.send_json(serialize_server_message("error", {"message": "Invalid JSON message"}))
+                continue
+            try:
+                message = validate_client_message(message)
+            except ValidationError:
+                await websocket.send_json(serialize_server_message("error", {"message": "Unsupported realtime message"}))
                 continue
 
-            if message.get("event") == "ping":
-                await websocket.send_json({"event": "pong", "payload": {"serverTime": now_utc().isoformat()}})
+            if message.event == "ping":
+                await websocket.send_json(serialize_server_message("pong", {"serverTime": now_utc()}))
     except WebSocketDisconnect:
         pass
     finally:

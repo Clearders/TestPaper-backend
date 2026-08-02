@@ -8,6 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Request, Response, status
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
+from testpaper_backend.core.openapi import BINARY_DOWNLOAD_RESPONSES
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
 from testpaper_backend.schemas import (
@@ -222,7 +223,7 @@ def patch_comment(
     return envelope(detail.model_dump(mode="json"), request)
 
 
-@router.get("/{draft_public_id}/download")
+@router.get("/{draft_public_id}/download", response_class=Response, responses=BINARY_DOWNLOAD_RESPONSES)
 def download_draft(draft_public_id: str, current_user: PapersReadDep):
     detail = get_shared_draft(draft_public_id, current_user)
     include_answer = bool(detail.state.get("includeAnswersInExport")) and has_permission(current_user, "answers:read")
