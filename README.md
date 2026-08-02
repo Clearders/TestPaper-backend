@@ -3,7 +3,7 @@
 > Version: 0.1.0  
 > Framework: FastAPI 0.136  
 > Python: 3.13+  
-> Last updated: 2026-07-05
+> Last updated: 2026-08-02
 
 FastAPI backend for the TestPapers test paper management and auto-generation system. The service exposes REST and WebSocket APIs, uses PostgreSQL for persistence including collaborative paper drafts, Redis for cache/Celery broker, and Celery for asynchronous jobs.
 
@@ -136,6 +136,8 @@ TestPaper-backend/
 ## API Overview
 
 All application routes are under `/api/v1` except `GET /`. For the full contract, see [../TestPapers/docs/api-spec.md](../TestPapers/docs/api-spec.md).
+
+The canonical cross-platform repository strategy, runtime ownership, and dependency rules are defined in [TestPapers ADR-0001](https://github.com/Clearders/TestPapers/blob/main/docs/adr/0001-platform-repository-and-runtime-boundaries.md).
 
 | Module | Prefix | Endpoints | Description |
 | --- | --- | --- | --- |
