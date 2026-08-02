@@ -24,7 +24,11 @@ FastAPI backend for the TestPapers test paper management and auto-generation sys
 ## Local Setup
 
 ```bash
-uv sync
+uv sync --locked
+docker compose up -d postgres
+python scripts/validate_config.py --env-file config/env/development.env.example
+alembic upgrade head
+testpaper-backend
 ```
 
 Alternative:
@@ -32,6 +36,18 @@ Alternative:
 ```bash
 pip install -e .
 ```
+
+Copy `.env.example` to `.env` when you want a private development configuration, then export it in your shell or pass it explicitly to `testpaper-config --env-file .env`. The application never searches for or silently loads a cwd `.env` file. Exported environment variables take precedence over an explicitly supplied file.
+
+Optional cloud-development dependencies are isolated behind Compose profiles:
+
+```bash
+docker compose --profile async up -d          # PostgreSQL, Redis, Celery worker
+docker compose --profile object-storage up -d # PostgreSQL and MinIO
+docker compose --profile async --profile object-storage up -d
+```
+
+See [docs/development.md](docs/development.md) for configuration profiles, the toolchain matrix, storage behavior, and teardown commands.
 
 ## Local Commands
 
@@ -56,6 +72,12 @@ Required:
 DATABASE_URL=postgresql+psycopg://postgres:password@localhost:5432/testpapers
 ```
 
+`TESTPAPERS_ENV` is required operationally and accepts exactly `local`, `development`, `test`, `staging`, or `production`. `APP_ENV` remains a compatibility alias; conflicting or invalid values fail startup. Use the matching tracked sample in `config/env/` and run the preflight before migrations or startup:
+
+```bash
+testpaper-config --env-file config/env/local.env.example
+```
+
 Common optional values:
 
 ```text
@@ -78,12 +100,15 @@ RATE_LIMIT_MAX_ATTEMPTS=5
 RATE_LIMIT_WINDOW_SECONDS=60
 RATE_LIMIT_WRITE_MAX_ATTEMPTS=30
 RATE_LIMIT_WRITE_WINDOW_SECONDS=60
-APP_ENV=development
+TESTPAPERS_ENV=development
+DATA_DIR=.runtime
+IMAGE_UPLOAD_DIR=
+AVATAR_UPLOAD_DIR=
 TRUSTED_HOSTS=localhost,127.0.0.1
 FORWARDED_ALLOW_IPS=127.0.0.1
 ```
 
-In production, `CORS_ORIGINS` and `TRUSTED_HOSTS` are required and must not contain `*`. Set `AUTH_COOKIE_SECURE=true` when serving over HTTPS.
+In staging and production, `DATA_DIR` must be absolute, `CORS_ORIGINS` and `TRUSTED_HOSTS` are required, and wildcards are rejected. Production additionally requires `AUTH_COOKIE_SECURE=true`. Object storage is optional; `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY`, and `OBJECT_STORAGE_SECRET_KEY` must either all be set or all be absent. These settings reserve the cloud boundary; current uploads remain on the configured filesystem directories.
 
 ## Project Structure
 

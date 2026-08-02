@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from pathlib import Path
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
+from testpaper_backend.config import get_avatar_upload_dir
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse, PasswordChange, ProfileUpdate, UserEntity
 from testpaper_backend.security import password_hash, user_row_to_entity, verify_password
@@ -15,7 +15,7 @@ from testpaper_backend.services.user_errors import user_not_found, username_exis
 from testpaper_backend.time_utils import now_utc
 
 MAX_AVATAR_BYTES = 500 * 1024
-AVATAR_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "avatars"
+AVATAR_UPLOAD_DIR = get_avatar_upload_dir()
 AVATAR_UPLOAD = PngUploadTarget(
     directory=AVATAR_UPLOAD_DIR,
     public_path="/api/v1/avatars",

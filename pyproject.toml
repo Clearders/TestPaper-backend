@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 testpaper-backend = "testpaper_backend.main:main"
+testpaper-config = "testpaper_backend.config_cli:main"
 
 [tool.setuptools]
 py-modules = []
