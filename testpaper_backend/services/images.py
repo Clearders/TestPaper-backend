@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
 from uuid import uuid4
 
+from testpaper_backend.config import get_image_upload_dir
 from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse
 from testpaper_backend.services.png_uploads import PngUploadTarget, store_png_upload
 
 MAX_IMAGE_UPLOAD_BYTES = 30 * 1024 * 1024
-IMAGE_UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploaded-images"
+IMAGE_UPLOAD_DIR = get_image_upload_dir()
 QUESTION_IMAGE_UPLOAD = PngUploadTarget(
     directory=IMAGE_UPLOAD_DIR,
     public_path="/api/v1/images/files",

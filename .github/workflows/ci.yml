@@ -27,10 +27,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest ruff setuptools
+          python -m pip install uv==0.11.32
+          uv sync --locked --dev
 
       - name: Run backend checks
-        run: python scripts/check.py
+        run: uv run --locked python scripts/check.py
+
+      - name: Validate Compose profiles
+        run: |
+          docker compose config --quiet
+          docker compose --profile async --profile object-storage config --quiet
 
       - name: Validate OpenAPI document
         run: docker run --rm -v "$PWD:/spec" tufin/oasdiff:v1.27.0 validate /spec/contracts/openapi.json

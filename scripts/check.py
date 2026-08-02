@@ -10,6 +10,13 @@ CHECKS = (
     ("Ruff format", [sys.executable, "-m", "ruff", "format", "--check", "."]),
     ("Ruff lint", [sys.executable, "-m", "ruff", "check", "."]),
     ("OpenAPI contract", [sys.executable, "scripts/export_openapi.py", "--check"]),
+    *(
+        (
+            f"Configuration example ({profile})",
+            [sys.executable, "scripts/validate_config.py", "--env-file", f"config/env/{profile}.env.example"],
+        )
+        for profile in ("local", "development", "test", "staging", "production")
+    ),
     ("Pytest", [sys.executable, "-m", "pytest", "-q"]),
     ("Migration simulation", [sys.executable, "scripts/simulate_migrations.py"]),
 )

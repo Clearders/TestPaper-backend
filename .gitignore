@@ -12,6 +12,7 @@ venv/
 # Local databases and environment
 *.db
 uploaded-images/
+.runtime/
 .env
 .env.*
 !.env.example

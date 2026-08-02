@@ -11,16 +11,14 @@ from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 from testpaper_backend.services.profiles import AVATAR_UPLOAD_DIR
 
 app = create_app(lifespan=lifespan)
-IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/v1/images/files",
-    StaticFiles(directory=str(IMAGE_UPLOAD_DIR)),
+    StaticFiles(directory=str(IMAGE_UPLOAD_DIR), check_dir=False),
     name="uploaded_images",
 )
-AVATAR_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/api/v1/avatars",
-    StaticFiles(directory=str(AVATAR_UPLOAD_DIR)),
+    StaticFiles(directory=str(AVATAR_UPLOAD_DIR), check_dir=False),
     name="avatars",
 )
 register_request_id_middleware(app)
