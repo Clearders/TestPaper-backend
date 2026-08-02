@@ -11,7 +11,7 @@ download responses, and the `x-testpapers-websocket` event contract.
 python scripts/export_openapi.py
 python scripts/export_openapi.py --check
 python scripts/export_openapi.py --check --expect-version 1.0.0
-docker run --rm -v "$PWD:/spec" tufin/oasdiff:1.27.0 validate /spec/contracts/openapi.json
+docker run --rm -v "$PWD:/spec" tufin/oasdiff:v1.27.0 validate /spec/contracts/openapi.json
 ```
 
 The Backend release tag `api-v1.0.0` publishes `openapi.json` and its SHA-256.
