@@ -28,7 +28,7 @@ class FakeWebSocket:
 class FailingRedis:
     async def publish(self, channel: str, message: str) -> None:
         assert channel == BROADCAST_CHANNEL
-        assert json.loads(message)["event"] == "paper.updated"
+        assert json.loads(message)["event"] == "error"
         raise ConnectionError("redis unavailable")
 
 
@@ -41,9 +41,9 @@ def test_local_send_drops_stale_websocket(caplog) -> None:
 
     caplog.set_level(logging.DEBUG, logger="testpaper_backend.services.realtime")
 
-    asyncio.run(manager._local_send("question.updated", {"id": 1}))
+    asyncio.run(manager._local_send("error", {"message": "test message"}))
 
-    assert json.loads(healthy.messages[0]) == {"event": "question.updated", "payload": {"id": 1}}
+    assert json.loads(healthy.messages[0]) == {"event": "error", "payload": {"message": "test message"}}
     assert healthy in manager._connections
     assert stale not in manager._connections
     assert manager._ip_connections["127.0.0.1"] == {healthy}
@@ -56,9 +56,9 @@ def test_broadcast_notifies_local_clients_when_redis_publish_fails(monkeypatch) 
     manager._connections.add(websocket)
     monkeypatch.setattr(realtime_module, "get_async_redis", lambda: FailingRedis())
 
-    asyncio.run(manager.broadcast("paper.updated", {"id": 1}))
+    asyncio.run(manager.broadcast("error", {"message": "test message"}))
 
-    assert json.loads(websocket.messages[0]) == {"event": "paper.updated", "payload": {"id": 1}}
+    assert json.loads(websocket.messages[0]) == {"event": "error", "payload": {"message": "test message"}}
 
 
 def test_connection_limit_is_enforced_per_ip() -> None:

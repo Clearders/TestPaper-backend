@@ -45,6 +45,7 @@ ruff format .
 ruff check .
 pytest
 python scripts/check.py
+python scripts/export_openapi.py --check
 ```
 
 ## Environment Variables
@@ -135,7 +136,9 @@ TestPaper-backend/
 
 ## API Overview
 
-All application routes are under `/api/v1` except `GET /`. For the full contract, see [../TestPapers/docs/api-spec.md](../TestPapers/docs/api-spec.md).
+All application routes are under `/api/v1` except `GET /`. The canonical machine-readable contract is
+[`contracts/openapi.json`](contracts/openapi.json); its export and compatibility policy are documented in
+[`contracts/README.md`](contracts/README.md).
 
 The canonical cross-platform repository strategy, runtime ownership, and dependency rules are defined in [TestPapers ADR-0001](https://github.com/Clearders/TestPapers/blob/main/docs/adr/0001-platform-repository-and-runtime-boundaries.md).
 
@@ -238,7 +241,7 @@ Error response:
 }
 ```
 
-`204 No Content` endpoints return no body. DOCX download endpoints return binary content directly.
+`204 No Content` endpoints return no body. DOCX download endpoints return binary content directly and declare their media type and response headers in OpenAPI.
 
 Cloud draft downloads use `GET /api/v1/drafts/{draft_public_id}/download`. The response is a DOCX binary built from the draft's stored `state.paper` snapshot, `state.exportMode`, `state.layoutDensity`, and `state.includeAnswersInExport`. Answers are included only when the draft asks for them and the caller has `answers:read`. The endpoint does not create or update a saved paper and returns `X-Cloud-Draft-Export: true`.
 

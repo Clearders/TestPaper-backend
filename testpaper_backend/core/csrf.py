@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import Request, Response, status
 from starlette.responses import JSONResponse
@@ -16,6 +17,19 @@ from testpaper_backend.config import (
 from testpaper_backend.time_utils import now_utc
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _csrf_error_response(request: Request, code: str, message: str) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id") or str(uuid4())
+    return JSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "success": False,
+            "error": {"code": code, "message": message},
+            "meta": {"requestId": request_id},
+        },
+        headers={"X-Request-Id": request_id},
+    )
 
 
 def generate_csrf_token() -> str:
@@ -87,24 +101,12 @@ class CSRFMiddleware:
         header_token = request.headers.get("x-csrf-token")
 
         if not cookie_token or not header_token:
-            response: JSONResponse = JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN,
-                content={
-                    "success": False,
-                    "error": {"code": "CSRF_MISSING", "message": "CSRF token missing"},
-                },
-            )
+            response = _csrf_error_response(request, "CSRF_MISSING", "CSRF token missing")
             await response(scope, receive, send)
             return
 
         if not secrets.compare_digest(cookie_token, header_token):
-            response = JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN,
-                content={
-                    "success": False,
-                    "error": {"code": "CSRF_MISMATCH", "message": "CSRF token mismatch"},
-                },
-            )
+            response = _csrf_error_response(request, "CSRF_MISMATCH", "CSRF token mismatch")
             await response(scope, receive, send)
             return
 

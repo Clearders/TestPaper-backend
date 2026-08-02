@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,3 +31,26 @@ jobs:
 
       - name: Run backend checks
         run: python scripts/check.py
+
+      - name: Validate OpenAPI document
+        run: docker run --rm -v "$PWD:/spec" tufin/oasdiff:1.27.0 validate /spec/contracts/openapi.json
+
+      - name: Reject breaking API changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git cat-file -e "origin/${BASE_REF}:contracts/openapi.json" 2>/dev/null; then
+            git show "origin/${BASE_REF}:contracts/openapi.json" > /tmp/base-openapi.json
+            docker run --rm -v "$PWD:/revision" -v /tmp:/base tufin/oasdiff:1.27.0 \
+              breaking --fail-on WARN /base/base-openapi.json /revision/contracts/openapi.json
+          else
+            echo "No base contract exists yet; treating this pull request as the v1 baseline."
+          fi
+
+      - name: Upload immutable contract candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-${{ github.sha }}
+          path: contracts/openapi.json
+          if-no-files-found: error

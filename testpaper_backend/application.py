@@ -6,6 +6,7 @@ from testpaper_backend.api.router import router
 from testpaper_backend.core.factory import create_app
 from testpaper_backend.core.http import register_exception_handlers, register_request_id_middleware, register_security_headers
 from testpaper_backend.core.lifespan import lifespan
+from testpaper_backend.core.openapi import install_openapi_contract
 from testpaper_backend.services.images import IMAGE_UPLOAD_DIR
 from testpaper_backend.services.profiles import AVATAR_UPLOAD_DIR
 
@@ -26,3 +27,4 @@ register_request_id_middleware(app)
 register_security_headers(app)
 register_exception_handlers(app)
 app.include_router(router)
+install_openapi_contract(app)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -10,7 +10,7 @@ class MetaInfo(BaseModel):
 
 
 class Envelope[T](BaseModel):
-    success: bool = True
+    success: Literal[True] = True
     data: T
     meta: MetaInfo
 
@@ -22,7 +22,7 @@ class ErrorDetail(BaseModel):
 
 
 class ErrorEnvelope(BaseModel):
-    success: bool = False
+    success: Literal[False] = False
     error: ErrorDetail
     meta: MetaInfo
 
