@@ -311,6 +311,7 @@ def upsert_draft_collaborator(
         row.updated_by = current_user.id
         row.updated_at = now
         session.commit()
+        session.expire_all()
         row = _get_draft_row(session, draft_public_id)
         return _detail_from_row(row, current_user)
 
@@ -336,6 +337,7 @@ def update_draft_collaborator(
         row.updated_by = current_user.id
         row.updated_at = now
         session.commit()
+        session.expire_all()
         row = _get_draft_row(session, draft_public_id)
         return _detail_from_row(row, current_user)
 
@@ -355,6 +357,7 @@ def delete_draft_collaborator(draft_public_id: str, user_public_id: str, current
         row.updated_by = current_user.id
         row.updated_at = now
         session.commit()
+        session.expire_all()
         row = _get_draft_row(session, draft_public_id)
         return _detail_from_row(row, current_user)
 
