@@ -19,6 +19,7 @@ uploaded-images/
 
 # Logs and local process files
 logs/
+artifacts/
 *.log
 *.pid
 
