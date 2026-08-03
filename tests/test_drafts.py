@@ -6,7 +6,16 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from testpaper_backend.schemas import DraftAccessRole, DraftReviewStatus, PaperDraftCommentUpdate, PaperDraftUpdate, UserEntity, UserRole
+from testpaper_backend.schemas import (
+    DraftAccessRole,
+    DraftCollaboratorRole,
+    DraftReviewStatus,
+    PaperDraftCollaboratorCreate,
+    PaperDraftCommentUpdate,
+    PaperDraftUpdate,
+    UserEntity,
+    UserRole,
+)
 from testpaper_backend.services import drafts
 
 
@@ -88,6 +97,9 @@ class _FakeSession:
     def commit(self):
         self.committed = True
 
+    def expire_all(self):
+        return None
+
     def refresh(self, row):
         return None
 
@@ -108,6 +120,42 @@ def test_draft_access_role_owner_admin_editor_viewer_and_none() -> None:
     assert drafts.draft_access_role(editor_row, _user(2)) == DraftAccessRole.editor
     assert drafts.draft_access_role(viewer_row, _user(3, UserRole.viewer)) == DraftAccessRole.viewer
     assert drafts.draft_access_role(owner_row, _user(4, UserRole.viewer)) is None
+
+
+def test_add_collaborator_returns_refreshed_relationship(monkeypatch: pytest.MonkeyPatch) -> None:
+    initial = _draft_row(owner_id=1)
+    target = SimpleNamespace(id=2, public_id="u-2", username="user2", display_name="User 2", is_active=True)
+    collaborator = SimpleNamespace(
+        user_id=2,
+        role=DraftCollaboratorRole.editor.value,
+        user=target,
+        created_at=datetime(2026, 7, 2, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 2, tzinfo=UTC),
+    )
+    refreshed = _draft_row(owner_id=1, collaborator_role="editor", collaborator_id=2)
+    refreshed.collaborators = [collaborator]
+    session = _FakeSession(target)
+    expired = False
+
+    def expire_all():
+        nonlocal expired
+        expired = True
+
+    session.add = lambda _row: None
+    session.expire_all = expire_all
+    rows = iter([initial, refreshed])
+    monkeypatch.setattr(drafts, "SessionLocal", lambda: session)
+    monkeypatch.setattr(drafts, "_get_draft_row", lambda _session, _public_id: next(rows))
+
+    detail = drafts.upsert_draft_collaborator(
+        "draft-1",
+        PaperDraftCollaboratorCreate(username="user2", role=DraftCollaboratorRole.editor),
+        _user(1),
+    )
+
+    assert expired is True
+    assert detail.collaboratorCount == 1
+    assert detail.collaborators[0].user.username == "user2"
 
 
 def test_redact_draft_state_answers_removes_nested_original_answers() -> None:
