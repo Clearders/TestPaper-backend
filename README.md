@@ -64,6 +64,10 @@ python scripts/check.py
 python scripts/export_openapi.py --check
 ```
 
+`python scripts/check.py` is the single repository quality entry point. It runs formatting, lint, OpenAPI drift, configuration samples, the named workflow smoke suite, the full test suite, migration simulation, and a locked production-dependency vulnerability audit. CI adds `--with-postgres` to exercise a real PostgreSQL `upgrade -> base -> upgrade` cycle and uploads JUnit, migration diagnostics, audit output, the immutable OpenAPI candidate, and the combined error log for 14 days even when a gate fails. The audit is intentionally strict: any known production dependency vulnerability fails the gate, which includes the required high- and critical-severity findings.
+
+The smoke suite fixes the regression baseline for authentication, question-bank ownership, paper generation validation, shared-draft review, comment moderation, WebSocket fallback delivery, and DOCX export. Run it alone while iterating with `python scripts/run_smoke_tests.py`.
+
 ## Environment Variables
 
 Required:

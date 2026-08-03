@@ -11,6 +11,21 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -31,7 +46,12 @@ jobs:
           uv sync --locked --dev
 
       - name: Run backend checks
-        run: uv run --locked python scripts/check.py
+        env:
+          MIGRATION_SMOKE_DATABASE_URL: postgresql+psycopg://postgres:postgres-ci-only@127.0.0.1:5432/postgres
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          uv run --locked python scripts/check.py --with-postgres 2>&1 | tee artifacts/backend-check.log
 
       - name: Validate Compose profiles
         run: |
@@ -55,8 +75,24 @@ jobs:
           fi
 
       - name: Upload immutable contract candidate
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: openapi-${{ github.sha }}
           path: contracts/openapi.json
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test and diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-quality-${{ github.sha }}
+          path: |
+            artifacts/backend-check.log
+            artifacts/*-junit.xml
+            artifacts/migration-round-trip.json
+            artifacts/dependency-audit.json
+            artifacts/production-requirements.txt
+          if-no-files-found: warn
+          retention-days: 14
