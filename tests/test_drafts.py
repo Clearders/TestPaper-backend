@@ -11,6 +11,7 @@ from testpaper_backend.schemas import (
     DraftCollaboratorRole,
     DraftReviewStatus,
     PaperDraftCollaboratorCreate,
+    PaperDraftCommentCreate,
     PaperDraftCommentUpdate,
     PaperDraftUpdate,
     UserEntity,
@@ -156,6 +157,46 @@ def test_add_collaborator_returns_refreshed_relationship(monkeypatch: pytest.Mon
     assert expired is True
     assert detail.collaboratorCount == 1
     assert detail.collaborators[0].user.username == "user2"
+
+
+def test_add_comment_returns_refreshed_relationship(monkeypatch: pytest.MonkeyPatch) -> None:
+    initial = _draft_row(owner_id=1, collaborator_role="editor", collaborator_id=2)
+    comment = SimpleNamespace(
+        id=5,
+        public_id="comment-1",
+        question_public_id=None,
+        message="Needs review",
+        status="open",
+        author_id=2,
+        author=_user_row(2),
+        created_at=datetime(2026, 7, 2, tzinfo=UTC),
+        updated_at=datetime(2026, 7, 2, tzinfo=UTC),
+    )
+    refreshed = _draft_row(owner_id=1, collaborator_role="editor", collaborator_id=2)
+    refreshed.comments = [comment]
+    session = _FakeSession(initial)
+    expired = False
+
+    def expire_all():
+        nonlocal expired
+        expired = True
+
+    session.add = lambda _row: None
+    session.expire_all = expire_all
+    rows = iter([initial, refreshed])
+    monkeypatch.setattr(drafts, "SessionLocal", lambda: session)
+    monkeypatch.setattr(drafts, "_get_draft_row", lambda _session, _public_id: next(rows))
+
+    detail = drafts.create_draft_comment(
+        "draft-1",
+        PaperDraftCommentCreate(message="Needs review"),
+        _user(2),
+    )
+
+    assert expired is True
+    assert detail.commentCount == 1
+    assert detail.openCommentCount == 1
+    assert detail.comments[0].message == "Needs review"
 
 
 def test_redact_draft_state_answers_removes_nested_original_answers() -> None:
