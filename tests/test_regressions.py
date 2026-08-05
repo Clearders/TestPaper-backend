@@ -817,6 +817,44 @@ def test_saved_paper_download_reports_docx_headers_and_effective_layout_density(
     assert "Answer 1" in document_xml
 
 
+def test_saved_paper_can_download_tex(monkeypatch) -> None:
+    teacher = _user(115, UserRole.teacher)
+    paper = PaperEntity(
+        id=1,
+        publicId="paper-tex",
+        title="Saved TeX Export",
+        subject="Math",
+        duration=60,
+        totalMarks=10,
+        questions=[],
+        ownerId=teacher.id,
+        createdAt=datetime(2026, 6, 14, tzinfo=UTC),
+        updatedAt=datetime(2026, 6, 14, tzinfo=UTC),
+    )
+    question = _draft_choice_question(1)
+    question["text"] = r"Solve $x^2=4$."
+    question["answer"] = "A"
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: teacher
+    app.include_router(paper_routes.router)
+    monkeypatch.setattr(paper_routes, "get_paper_or_404", lambda public_id: paper)
+    monkeypatch.setattr(paper_routes, "build_export_questions", lambda paper_arg, question_order, include_answer: [question])
+
+    response = TestClient(app).get(
+        "/api/v1/papers/paper-tex/download",
+        params={"format": "tex", "includeAnswer": "true"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";", 1)[0] == "application/x-tex"
+    assert response.headers["x-export-format"] == "tex"
+    assert "Saved%20TeX%20Export.tex" in response.headers["content-disposition"]
+    source = response.content.decode("utf-8")
+    assert r"Solve $x^2=4$." in source
+    assert r"\textbf{Answer:} A" in source
+
+
 def test_cloud_draft_download_reports_docx_headers_and_effective_layout_density(monkeypatch) -> None:
     teacher = _user(16, UserRole.teacher)
     questions = [_draft_choice_question(index) for index in range(1, 16)]
