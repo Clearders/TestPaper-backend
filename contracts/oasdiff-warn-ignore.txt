@@ -1,0 +1,8 @@
+# oasdiff warning ignore list (see docs/BREAKING-CHANGES.md "Ignoring specific breaking changes")
+# Format per line: <METHOD> <path> <warning description>
+#
+# The format query param pattern widened from ^docx$ (docx only) to ^(docx|tex)$:
+# this is a backward-compatible superset (existing docx callers keep working, tex is added).
+# oasdiff cannot statically prove a pattern superset, so it reports a WARN; the change is
+# intentionally allowed and gated by server-side validation instead.
+GET /api/v1/papers/{paper_public_id}/download changed the pattern of the `query` request parameter `format` from `^docx$` to `^(docx|tex)$`
