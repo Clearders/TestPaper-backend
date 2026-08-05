@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from testpaper_backend.config import get_database_url
-from testpaper_backend.schemas import PaperStatus, UserRole
+from testpaper_backend.schemas import PaperStatus, TokenType, UserRole
 
 
 class Base(DeclarativeBase):
@@ -38,9 +38,27 @@ class AuthTokenRow(Base):
 
     token: Mapped[str] = mapped_column(String(128), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_type: Mapped[str] = mapped_column("tokenType", String(16), nullable=False, default=TokenType.session.value)
+    device_id: Mapped[str | None] = mapped_column("deviceId", String(128), nullable=True, index=True)
+    device_name: Mapped[str | None] = mapped_column("deviceName", String(120), nullable=True)
+    ip_address: Mapped[str | None] = mapped_column("ipAddress", String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column("userAgent", String(512), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column("lastSeenAt", DateTime(timezone=True), nullable=True)
+    refresh_token_id: Mapped[str | None] = mapped_column("refreshTokenId", String(128), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     user: Mapped[UserRow] = relationship(back_populates="tokens")
+
+
+class AuthAuditLogRow(Base):
+    __tablename__ = "auth_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id: Mapped[str | None] = mapped_column("deviceId", String(128), nullable=True)
+    event: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    ip_address: Mapped[str] = mapped_column("ipAddress", String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class QuestionRow(Base):

@@ -955,6 +955,9 @@ def test_password_change_revokes_other_sessions_but_keeps_current(monkeypatch) -
         def execute(self, statement):
             executed.append(statement)
 
+        def add(self, entity):
+            pass
+
         def commit(self):
             pass
 
