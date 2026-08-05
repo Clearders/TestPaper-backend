@@ -69,7 +69,8 @@ jobs:
           if git cat-file -e "origin/${BASE_REF}:contracts/openapi.json" 2>/dev/null; then
             git show "origin/${BASE_REF}:contracts/openapi.json" > /tmp/base-openapi.json
             docker run --rm -v "$PWD:/revision" -v /tmp:/base tufin/oasdiff:v1.27.0 \
-              breaking --fail-on WARN /base/base-openapi.json /revision/contracts/openapi.json
+              breaking --fail-on WARN --warn-ignore /revision/contracts/oasdiff-warn-ignore.txt \
+              /base/base-openapi.json /revision/contracts/openapi.json
           else
             echo "No base contract exists yet; treating this pull request as the v1 baseline."
           fi

@@ -13,6 +13,12 @@ class UserRole(StrEnum):
     viewer = "viewer"
 
 
+class TokenType(StrEnum):
+    session = "session"
+    access = "access"
+    refresh = "refresh"
+
+
 Permission = Literal[
     "questions:read",
     "questions:write",
@@ -85,6 +91,8 @@ class RegisterRequest(BaseModel):
 
 
 class UserEntity(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     publicId: str
     username: str
@@ -100,6 +108,35 @@ class UserEntity(BaseModel):
 class AuthSession(BaseModel):
     expiresAt: datetime
     user: UserEntity
+
+
+class NativeLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+    deviceName: str = Field(min_length=1, max_length=120)
+    deviceId: str = Field(min_length=1, max_length=128)
+
+
+class RefreshTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    refreshToken: str = Field(min_length=1)
+
+
+class TokenPair(BaseModel):
+    accessToken: str
+    refreshToken: str
+    expiresIn: int
+    refreshExpiresIn: int
+    user: UserEntity
+
+
+class DeviceSessionEntity(BaseModel):
+    deviceId: str
+    deviceName: str
+    lastSeenAt: datetime | None
+    createdAt: datetime
+    current: bool
 
 
 class UserCreate(BaseModel):

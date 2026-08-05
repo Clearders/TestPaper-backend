@@ -5,12 +5,13 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, RateLimitWriteDep
 from testpaper_backend.core.openapi import BINARY_DOWNLOAD_RESPONSES
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
+from testpaper_backend.documents.paper_tex import TEX_MEDIA_TYPE, build_paper_tex, tex_filename
 from testpaper_backend.schemas import (
     Envelope,
     LayoutDensity,
@@ -52,7 +53,7 @@ def _enum_value(enum_cls, value: Any, fallback):
         return fallback
 
 
-def _draft_docx_response(detail: PaperDraftDetail, *, include_answer: bool) -> Response:
+def _draft_export_response(detail: PaperDraftDetail, *, include_answer: bool, export_format: str) -> Response:
     state = detail.state
     paper_state = state.get("paper") if isinstance(state.get("paper"), dict) else {}
     questions = paper_state.get("questions") if isinstance(paper_state.get("questions"), list) else []
@@ -71,15 +72,22 @@ def _draft_docx_response(detail: PaperDraftDetail, *, include_answer: bool) -> R
         duration=int(paper_state.get("duration") or 60),
         totalMarks=int(paper_state.get("totalMarks") or 100),
     )
-    file_bytes = build_paper_docx(paper, ordered_questions, include_answer=include_answer, layout_density=layout_density)
-    filename = docx_filename(paper.title)
-    ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+    if export_format == "tex":
+        file_bytes = build_paper_tex(paper, ordered_questions, include_answer=include_answer)
+        filename = tex_filename(paper.title)
+        ascii_filename = tex_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+        media_type = TEX_MEDIA_TYPE
+    else:
+        file_bytes = build_paper_docx(paper, ordered_questions, include_answer=include_answer, layout_density=layout_density)
+        filename = docx_filename(paper.title)
+        ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+        media_type = DOCX_MEDIA_TYPE
     return Response(
         content=file_bytes,
-        media_type=DOCX_MEDIA_TYPE,
+        media_type=media_type,
         headers={
             "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
-            "X-Export-Format": "docx",
+            "X-Export-Format": export_format,
             "X-Layout-Density": effective_layout_density,
             "X-Cloud-Draft-Export": "true",
         },
@@ -224,7 +232,11 @@ def patch_comment(
 
 
 @router.get("/{draft_public_id}/download", response_class=Response, responses=BINARY_DOWNLOAD_RESPONSES)
-def download_draft(draft_public_id: str, current_user: PapersReadDep):
+def download_draft(
+    draft_public_id: str,
+    current_user: PapersReadDep,
+    format: str = Query(default="docx", pattern="^(docx|tex)$"),
+):
     detail = get_shared_draft(draft_public_id, current_user)
     include_answer = bool(detail.state.get("includeAnswersInExport")) and has_permission(current_user, "answers:read")
-    return _draft_docx_response(detail, include_answer=include_answer)
+    return _draft_export_response(detail, include_answer=include_answer, export_format=format)

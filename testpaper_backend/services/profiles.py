@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from testpaper_backend.config import get_avatar_upload_dir
-from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
+from testpaper_backend.db import AuthAuditLogRow, AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse, PasswordChange, ProfileUpdate, UserEntity
 from testpaper_backend.security import password_hash, user_row_to_entity, verify_password
 from testpaper_backend.services.png_uploads import PngUploadTarget, store_png_upload
@@ -61,7 +61,7 @@ def update_user_profile(user_id: int, payload: ProfileUpdate) -> UserEntity:
         return user_row_to_entity(user_row)
 
 
-def change_user_password(user_id: int, payload: PasswordChange, current_token: str | None) -> None:
+def change_user_password(user_id: int, payload: PasswordChange, current_token: str | None, ip_address: str = "unknown") -> None:
     with SessionLocal() as session:
         user_row = session.get(UserRow, user_id)
         if user_row is None:
@@ -78,6 +78,7 @@ def change_user_password(user_id: int, payload: PasswordChange, current_token: s
         if current_token:
             revoke_other_sessions = revoke_other_sessions.where(AuthTokenRow.token != current_token)
         session.execute(revoke_other_sessions)
+        session.add(AuthAuditLogRow(user_id=user_id, device_id=None, event="password_changed", ip_address=ip_address, created_at=now_utc()))
         session.commit()
 
 
@@ -93,12 +94,13 @@ def update_user_avatar(user_id: int, user_public_id: str, payload: ImageUploadPa
         return avatar
 
 
-def deactivate_user_account(user_id: int) -> None:
+def deactivate_user_account(user_id: int, ip_address: str = "unknown") -> None:
     with SessionLocal() as session:
         user_row = session.get(UserRow, user_id)
         if user_row is None:
             raise user_not_found()
         session.execute(delete(AuthTokenRow).where(AuthTokenRow.user_id == user_id))
+        session.add(AuthAuditLogRow(user_id=user_id, device_id=None, event="account_deleted", ip_address=ip_address, created_at=now_utc()))
         user_row.is_active = False
         user_row.updated_at = now_utc()
         session.commit()

@@ -11,6 +11,7 @@ from testpaper_backend.api.dependencies import PapersReadDep, PapersWriteDep, Ra
 from testpaper_backend.core.openapi import BINARY_DOWNLOAD_RESPONSES
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.documents.paper_docx import DOCX_MEDIA_TYPE, build_paper_docx, docx_filename, resolve_layout_density
+from testpaper_backend.documents.paper_tex import TEX_MEDIA_TYPE, build_paper_tex, tex_filename
 from testpaper_backend.schemas import (
     Envelope,
     ExportPreviewRequest,
@@ -48,7 +49,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/papers", tags=["papers"])
 
 
-def _docx_response(
+def _export_response(
     paper: Any,
     questions: list[dict[str, Any]],
     *,
@@ -58,9 +59,16 @@ def _docx_response(
     extra_headers: dict[str, str] | None = None,
 ) -> Response:
     effective_layout_density = resolve_layout_density(questions, layout_density)
-    file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layout_density)
-    filename = docx_filename(paper.title)
-    ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+    if export_format == "tex":
+        file_bytes = build_paper_tex(paper, questions, include_answer=include_answer)
+        filename = tex_filename(paper.title)
+        ascii_filename = tex_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+        media_type = TEX_MEDIA_TYPE
+    else:
+        file_bytes = build_paper_docx(paper, questions, include_answer=include_answer, layout_density=layout_density)
+        filename = docx_filename(paper.title)
+        ascii_filename = docx_filename(paper.title.encode("ascii", "ignore").decode("ascii") or "examination-paper")
+        media_type = DOCX_MEDIA_TYPE
     headers = {
         "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}",
         "X-Export-Format": export_format,
@@ -68,7 +76,7 @@ def _docx_response(
     }
     if extra_headers:
         headers.update(extra_headers)
-    return Response(content=file_bytes, media_type=DOCX_MEDIA_TYPE, headers=headers)
+    return Response(content=file_bytes, media_type=media_type, headers=headers)
 
 
 @router.post("", response_model=Envelope[PaperExpandedEntity], status_code=status.HTTP_201_CREATED)
@@ -121,6 +129,7 @@ def generate_paper(
 def download_draft_paper(
     payload: PaperDraftDownloadRequest,
     current_user: PapersReadDep,
+    format: str = Query(default="docx", pattern="^(docx|tex)$"),
 ):
     include_answer = payload.includeAnswer and has_permission(current_user, "answers:read")
     questions = [question.model_dump(mode="json", exclude_none=True) for question in payload.questions]
@@ -134,11 +143,12 @@ def download_draft_paper(
         duration=payload.duration,
         totalMarks=payload.totalMarks,
     )
-    return _docx_response(
+    return _export_response(
         paper,
         questions,
         include_answer=include_answer,
         layout_density=payload.layoutDensity,
+        export_format=format,
         extra_headers={"X-Draft-Export": "true"},
     )
 
@@ -276,7 +286,7 @@ def export_preview(
 def download_paper(
     paper_public_id: str,
     current_user: PapersReadDep,
-    format: str = Query(default="docx", pattern="^docx$"),
+    format: str = Query(default="docx", pattern="^(docx|tex)$"),
     questionOrder: QuestionOrder = QuestionOrder.paper,
     includeAnswer: bool = True,
     layoutDensity: LayoutDensity = LayoutDensity.auto,
@@ -284,7 +294,7 @@ def download_paper(
     paper = get_paper_or_404(paper_public_id)
     include_answer = includeAnswer and has_permission(current_user, "answers:read")
     questions = build_export_questions(paper, questionOrder, include_answer)
-    return _docx_response(
+    return _export_response(
         paper,
         questions,
         include_answer=include_answer,

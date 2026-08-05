@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
-from testpaper_backend.schemas import ROLE_PERMISSIONS, Permission, UserEntity, UserRole
+from testpaper_backend.schemas import ROLE_PERMISSIONS, Permission, TokenType, UserEntity, UserRole
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
 _ph = PasswordHasher()
@@ -94,6 +94,8 @@ def get_user_from_token(token: str | None) -> UserEntity:
         token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
         if token_row is None:
             raise auth_error("INVALID_TOKEN", "Invalid or expired token")
+        if token_row.token_type == TokenType.refresh.value:
+            raise auth_error("INVALID_TOKEN", "Refresh token cannot be used as an access credential")
         if as_aware_utc(token_row.expires_at) <= now_utc():
             session.delete(token_row)
             session.commit()

@@ -65,6 +65,8 @@ def clear_csrf_cookie(response: Response) -> None:
 CSRF_EXEMPT_PATH_SUFFIXES = (
     "/auth/login",
     "/auth/register",
+    "/auth/token",
+    "/auth/token/refresh",
 )
 
 

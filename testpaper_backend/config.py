@@ -218,6 +218,28 @@ def get_session_ttl_hours() -> int:
     return _positive_int("SESSION_TTL_HOURS", 12)
 
 
+def get_access_token_ttl_minutes() -> int:
+    raw = os.getenv("ACCESS_TOKEN_TTL_MINUTES", "30")
+    try:
+        minutes = int(raw)
+        if minutes < 1:
+            raise ValueError
+        return minutes
+    except ValueError as exc:
+        raise RuntimeError("ACCESS_TOKEN_TTL_MINUTES must be a positive integer.") from exc
+
+
+def get_refresh_token_ttl_days() -> int:
+    raw = os.getenv("REFRESH_TOKEN_TTL_DAYS", "30")
+    try:
+        days = int(raw)
+        if days < 1:
+            raise ValueError
+        return days
+    except ValueError as exc:
+        raise RuntimeError("REFRESH_TOKEN_TTL_DAYS must be a positive integer.") from exc
+
+
 def get_rate_limit_max_attempts() -> int:
     return _positive_int("RATE_LIMIT_MAX_ATTEMPTS", 5)
 
