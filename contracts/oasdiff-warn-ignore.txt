@@ -6,3 +6,58 @@
 # oasdiff cannot statically prove a pattern superset, so it reports a WARN; the change is
 # intentionally allowed and gated by server-side validation instead.
 GET /api/v1/papers/{paper_public_id}/download changed the pattern of the `query` request parameter `format` from `^docx$` to `^(docx|tex)$`
+#
+# banks:* permissions added to the response `permissions` enum (CLE-19 shared question banks).
+# Adding enum values to a response is a backward-compatible superset; oasdiff cannot prove it
+# statically, so it reports one WARN per (endpoint, enum value). All occurrences are listed
+# below; keep in sync if more endpoints start exposing the UserEntity permissions array.
+GET /api/v1/auth/me added the new `banks:delete` enum value to the `data/permissions/items/` response property for the response status `200`
+GET /api/v1/auth/me added the new `banks:publish` enum value to the `data/permissions/items/` response property for the response status `200`
+GET /api/v1/auth/me added the new `banks:read` enum value to the `data/permissions/items/` response property for the response status `200`
+GET /api/v1/auth/me added the new `banks:subscribe` enum value to the `data/permissions/items/` response property for the response status `200`
+GET /api/v1/auth/me added the new `banks:write` enum value to the `data/permissions/items/` response property for the response status `200`
+GET /api/v1/users added the new `banks:delete` enum value to the `data/items/permissions/items/` response property for the response status `200`
+GET /api/v1/users added the new `banks:publish` enum value to the `data/items/permissions/items/` response property for the response status `200`
+GET /api/v1/users added the new `banks:read` enum value to the `data/items/permissions/items/` response property for the response status `200`
+GET /api/v1/users added the new `banks:subscribe` enum value to the `data/items/permissions/items/` response property for the response status `200`
+GET /api/v1/users added the new `banks:write` enum value to the `data/items/permissions/items/` response property for the response status `200`
+PATCH /api/v1/auth/profile added the new `banks:delete` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/auth/profile added the new `banks:publish` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/auth/profile added the new `banks:read` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/auth/profile added the new `banks:subscribe` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/auth/profile added the new `banks:write` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/users/{user_public_id} added the new `banks:delete` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/users/{user_public_id} added the new `banks:publish` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/users/{user_public_id} added the new `banks:read` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/users/{user_public_id} added the new `banks:subscribe` enum value to the `data/permissions/items/` response property for the response status `200`
+PATCH /api/v1/users/{user_public_id} added the new `banks:write` enum value to the `data/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/login added the new `banks:delete` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/login added the new `banks:publish` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/login added the new `banks:read` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/login added the new `banks:subscribe` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/login added the new `banks:write` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/refresh added the new `banks:delete` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/refresh added the new `banks:publish` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/refresh added the new `banks:read` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/refresh added the new `banks:subscribe` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/refresh added the new `banks:write` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/register added the new `banks:delete` enum value to the `data/user/permissions/items/` response property for the response status `201`
+POST /api/v1/auth/register added the new `banks:publish` enum value to the `data/user/permissions/items/` response property for the response status `201`
+POST /api/v1/auth/register added the new `banks:read` enum value to the `data/user/permissions/items/` response property for the response status `201`
+POST /api/v1/auth/register added the new `banks:subscribe` enum value to the `data/user/permissions/items/` response property for the response status `201`
+POST /api/v1/auth/register added the new `banks:write` enum value to the `data/user/permissions/items/` response property for the response status `201`
+POST /api/v1/auth/token added the new `banks:delete` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token added the new `banks:publish` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token added the new `banks:read` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token added the new `banks:subscribe` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token added the new `banks:write` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token/refresh added the new `banks:delete` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token/refresh added the new `banks:publish` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token/refresh added the new `banks:read` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token/refresh added the new `banks:subscribe` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/auth/token/refresh added the new `banks:write` enum value to the `data/user/permissions/items/` response property for the response status `200`
+POST /api/v1/users added the new `banks:delete` enum value to the `data/permissions/items/` response property for the response status `201`
+POST /api/v1/users added the new `banks:publish` enum value to the `data/permissions/items/` response property for the response status `201`
+POST /api/v1/users added the new `banks:read` enum value to the `data/permissions/items/` response property for the response status `201`
+POST /api/v1/users added the new `banks:subscribe` enum value to the `data/permissions/items/` response property for the response status `201`
+POST /api/v1/users added the new `banks:write` enum value to the `data/permissions/items/` response property for the response status `201`

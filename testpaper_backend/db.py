@@ -192,6 +192,86 @@ class QuestionCorrectionRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class QuestionBankRow(Base):
+    __tablename__ = "question_banks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    owner_id: Mapped[int | None] = mapped_column("ownerId", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", index=True)
+    latest_version: Mapped[int] = mapped_column("latestVersion", Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    owner: Mapped[UserRow | None] = relationship(foreign_keys=[owner_id])
+    items: Mapped[list[QuestionBankItemRow]] = relationship(
+        back_populates="bank",
+        cascade="all, delete-orphan",
+    )
+    members: Mapped[list[QuestionBankMemberRow]] = relationship(
+        back_populates="bank",
+        cascade="all, delete-orphan",
+    )
+    publications: Mapped[list[BankPublicationRow]] = relationship(
+        back_populates="bank",
+        cascade="all, delete-orphan",
+        order_by="BankPublicationRow.version",
+    )
+    subscriptions: Mapped[list[BankSubscriptionRow]] = relationship(
+        back_populates="bank",
+        cascade="all, delete-orphan",
+    )
+
+
+class QuestionBankItemRow(Base):
+    __tablename__ = "question_bank_items"
+
+    bank_id: Mapped[int] = mapped_column("bankId", ForeignKey("question_banks.id", ondelete="CASCADE"), primary_key=True, index=True)
+    question_id: Mapped[int] = mapped_column("questionId", ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True)
+    added_by: Mapped[int | None] = mapped_column("addedBy", ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    bank: Mapped[QuestionBankRow] = relationship(back_populates="items")
+    question: Mapped[QuestionRow] = relationship()
+
+
+class QuestionBankMemberRow(Base):
+    __tablename__ = "question_bank_members"
+
+    bank_id: Mapped[int] = mapped_column("bankId", ForeignKey("question_banks.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    bank: Mapped[QuestionBankRow] = relationship(back_populates="members")
+    user: Mapped[UserRow] = relationship()
+
+
+class BankPublicationRow(Base):
+    __tablename__ = "bank_publications"
+    __table_args__ = (UniqueConstraint("bankId", "version", name="uq_bank_publications_bank_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False, unique=True, index=True, default=lambda: str(uuid4()))
+    bank_id: Mapped[int] = mapped_column("bankId", ForeignKey("question_banks.id", ondelete="CASCADE"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_by: Mapped[int | None] = mapped_column("createdBy", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    bank: Mapped[QuestionBankRow] = relationship(back_populates="publications")
+    created_by_user: Mapped[UserRow | None] = relationship(foreign_keys=[created_by])
+
+
+class BankSubscriptionRow(Base):
+    __tablename__ = "bank_subscriptions"
+
+    bank_id: Mapped[int] = mapped_column("bankId", ForeignKey("question_banks.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    bank: Mapped[QuestionBankRow] = relationship(back_populates="subscriptions")
+    user: Mapped[UserRow] = relationship()
+
+
 DATABASE_URL = get_database_url(required=False)
 engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True, pool_size=20, max_overflow=10) if DATABASE_URL else None
 _SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine is not None else None

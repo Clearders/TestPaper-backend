@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 from testpaper_backend.api.routes import auth as auth_routes
+from testpaper_backend.api.routes import banks as bank_routes
 from testpaper_backend.api.routes import drafts as draft_routes
 from testpaper_backend.api.routes import papers as paper_routes
 from testpaper_backend.api.routes import questions as question_routes
@@ -25,6 +26,8 @@ from testpaper_backend.repositories import question_row_to_entity
 from testpaper_backend.schemas import (
     ROLE_PERMISSIONS,
     AuthSession,
+    BankCreate,
+    BankItemAdd,
     CorrectionCategory,
     CorrectionStatus,
     Difficulty,
@@ -1066,3 +1069,79 @@ def test_task_results_are_bound_to_dispatching_user(monkeypatch) -> None:
     with pytest.raises(Exception) as exc_info:
         task_access.ensure_task_access(result.id, other)
     assert getattr(exc_info.value, "status_code", None) == 404
+
+
+def test_bank_create_route_wires_service(monkeypatch) -> None:
+    teacher = _user(18, UserRole.teacher)
+    calls = []
+
+    def fake_create_bank(payload, current_user):
+        calls.append((payload.name, current_user.publicId))
+        return SimpleNamespace(
+            publicId="bank-1",
+            model_dump=lambda mode="json": {
+                "id": 1,
+                "publicId": "bank-1",
+                "name": payload.name,
+                "description": "",
+                "visibility": "private",
+                "owner": {"publicId": current_user.publicId, "username": current_user.username, "displayName": current_user.displayName},
+                "accessRole": "owner",
+                "version": None,
+                "itemCount": 0,
+                "memberCount": 0,
+                "subscriberCount": 0,
+                "members": [],
+                "createdAt": "2026-08-05T00:00:00Z",
+                "updatedAt": "2026-08-05T00:00:00Z",
+            },
+        )
+
+    monkeypatch.setattr(bank_routes, "create_bank", fake_create_bank)
+    response = bank_routes.create_bank_route(
+        _request("/api/v1/banks"),
+        BankCreate(name="Regression Bank"),
+        teacher,
+        None,
+    )
+
+    assert calls == [("Regression Bank", teacher.publicId)]
+    assert response["data"]["publicId"] == "bank-1"
+
+
+def test_bank_add_items_route_wires_service(monkeypatch) -> None:
+    teacher = _user(18, UserRole.teacher)
+    calls = []
+
+    def fake_add_items(bank_public_id, payload, current_user):
+        calls.append((bank_public_id, payload.questionIds, current_user.publicId))
+        return SimpleNamespace(
+            model_dump=lambda mode="json": {
+                "id": 1,
+                "publicId": bank_public_id,
+                "name": "Bank",
+                "description": "",
+                "visibility": "private",
+                "owner": {"publicId": teacher.publicId, "username": teacher.username, "displayName": teacher.displayName},
+                "accessRole": "owner",
+                "version": None,
+                "itemCount": len(payload.questionIds),
+                "memberCount": 0,
+                "subscriberCount": 0,
+                "members": [],
+                "createdAt": "2026-08-05T00:00:00Z",
+                "updatedAt": "2026-08-05T00:00:00Z",
+            }
+        )
+
+    monkeypatch.setattr(bank_routes, "add_bank_items", fake_add_items)
+    response = bank_routes.add_items(
+        _request("/api/v1/banks/bank-1/items"),
+        "bank-1",
+        BankItemAdd(questionIds=["q-1", "q-2"]),
+        teacher,
+        None,
+    )
+
+    assert calls == [("bank-1", ["q-1", "q-2"], teacher.publicId)]
+    assert response["data"]["itemCount"] == 2
