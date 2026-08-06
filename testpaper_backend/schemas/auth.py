@@ -27,6 +27,11 @@ Permission = Literal[
     "papers:read",
     "papers:write",
     "users:manage",
+    "banks:read",
+    "banks:write",
+    "banks:delete",
+    "banks:publish",
+    "banks:subscribe",
 ]
 
 ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
@@ -38,6 +43,11 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         "papers:read",
         "papers:write",
         "users:manage",
+        "banks:read",
+        "banks:write",
+        "banks:delete",
+        "banks:publish",
+        "banks:subscribe",
     },
     UserRole.teacher: {
         "questions:read",
@@ -46,10 +56,17 @@ ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
         "answers:read",
         "papers:read",
         "papers:write",
+        "banks:read",
+        "banks:write",
+        "banks:delete",
+        "banks:publish",
+        "banks:subscribe",
     },
     UserRole.viewer: {
         "questions:read",
         "papers:read",
+        "banks:read",
+        "banks:subscribe",
     },
 }
 

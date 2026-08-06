@@ -108,6 +108,8 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 responses.setdefault("429", _error_response("The write rate limit was exceeded."))
             if path.startswith("/api/v1/drafts/") and method == "patch":
                 responses.setdefault("409", _error_response("The draft revision conflicts with the current server revision."))
+            if path.startswith("/api/v1/banks/") and method == "post" and path.endswith("/items"):
+                responses.setdefault("409", _error_response("One or more questions already exist in this bank."))
 
 
 def build_openapi_contract(app: FastAPI) -> dict[str, Any]:

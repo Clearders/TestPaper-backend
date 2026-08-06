@@ -20,6 +20,24 @@ from testpaper_backend.schemas.auth import (
     UserRole,
     UserUpdate,
 )
+from testpaper_backend.schemas.bank import (
+    BankAccessRole,
+    BankCreate,
+    BankForkRequest,
+    BankItemAdd,
+    BankMemberCreate,
+    BankMemberEntity,
+    BankMemberUpdate,
+    BankPublicationEntity,
+    BankRole,
+    BankSubscriptionEntity,
+    BankUpdate,
+    BankUserRef,
+    BankVersionSummary,
+    BankVisibility,
+    QuestionBankEntity,
+    QuestionBankSummary,
+)
 from testpaper_backend.schemas.common import (
     Envelope,
     ErrorDetail,
