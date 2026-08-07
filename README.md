@@ -49,6 +49,22 @@ docker compose --profile async --profile object-storage up -d
 
 See [docs/development.md](docs/development.md) for configuration profiles, the toolchain matrix, storage behavior, and teardown commands.
 
+## Dockerized Cloud Development Environment
+
+`compose.yaml` starts the complete cloud dev stack — Web frontend, API, and
+PostgreSQL — with a single command; Redis/Celery/MinIO stay behind optional
+profiles:
+
+```bash
+cp .env.example .env
+docker compose build
+docker compose up -d
+```
+
+The `web` service is built from the sibling `TestPapers` checkout (see
+`WEB_CONTEXT`). Full workflow commands and troubleshooting are documented in
+[docs/docker-compose.md](docs/docker-compose.md).
+
 ## Local Commands
 
 ```bash

@@ -29,12 +29,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload immutable contract candidate
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi-${{ github.sha }}
           path: contracts/openapi.json
@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload test and diagnostic artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-quality-${{ github.sha }}
           path: |
@@ -97,3 +97,73 @@ jobs:
             artifacts/production-requirements.txt
           if-no-files-found: warn
           retention-days: 14
+
+  container-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Backend
+        uses: actions/checkout@v7
+
+      - name: Checkout Web
+        uses: actions/checkout@v7
+        with:
+          repository: Clearders/TestPapers
+          path: ../TestPapers
+          ref: main
+
+      - name: Validate Compose
+        run: |
+          docker compose config --quiet
+          docker compose --profile async --profile object-storage config --quiet
+
+      - name: Build api and web (development) images
+        run: docker compose build api web
+
+      - name: Build web runtime image
+        run: |
+          docker build --target runtime \
+            --build-arg NUXT_API_BASE=http://api:8000/api/v1 \
+            --build-arg NUXT_PUBLIC_API_BASE=/api/v1 \
+            -t testpapers-web:runtime ../TestPapers
+
+      - name: Start database and api, wait for health
+        run: docker compose up -d --wait postgres api
+
+      - name: Migrate database from empty state
+        run: docker compose exec -T api alembic upgrade head
+
+      - name: Verify api health
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/postgres
+
+      - name: Verify web (runtime image) -> API communication
+        run: |
+          docker run -d --rm --name web-runtime-smoke \
+            --network testpapers-cloud_default \
+            testpapers-web:runtime
+          ready=0
+          for attempt in $(seq 1 30); do
+            if docker exec web-runtime-smoke node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = "1"
+          docker exec web-runtime-smoke node -e "fetch('http://api:8000/api/v1/health/postgres').then(r=>{console.log('status',r.status);process.exit(r.ok?0:1)}).catch(e=>{console.error(e);process.exit(1)})"
+
+      - name: Verify optional redis profile
+        run: |
+          docker compose --profile async up -d --wait redis
+          docker compose exec -T redis redis-cli ping
+          curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/health/redis
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker rm -f web-runtime-smoke || true
+          docker compose --profile async --profile object-storage down -v --remove-orphans

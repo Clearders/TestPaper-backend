@@ -1,4 +1,18 @@
-name: testpapers-backend
+name: testpapers-cloud
+
+# Single cloud-development entry point for TestPapers Platform v2.
+# Owned by TestPaper-backend (cloud orchestration owner); the web frontend is
+# built from its own checkout referenced via WEB_CONTEXT.
+#
+# Core stack (single command):  docker compose up -d
+#   postgres + api + web
+# Optional profiles:
+#   --profile async          adds redis + celery worker
+#   --profile object-storage adds minio
+#
+# All host ports bind to 127.0.0.1 only; PostgreSQL/Redis are never exposed to
+# the wider network by default. Copy .env.example to .env and edit ports or
+# credentials before first start.
 
 services:
   postgres:
@@ -8,7 +22,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-testpapers}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testpapers-local-only}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -18,12 +32,69 @@ services:
       retries: 10
     restart: unless-stopped
 
+  api:
+    build:
+      context: .
+    environment:
+      TESTPAPERS_ENV: development
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-testpapers}:${POSTGRES_PASSWORD:-testpapers-local-only}@postgres:5432/${POSTGRES_DB:-testpapers}
+      DATA_DIR: /var/lib/testpapers
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      TRUSTED_HOSTS: localhost,127.0.0.1,api,web
+      FORWARDED_ALLOW_IPS: 127.0.0.1
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAMESITE: lax
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ./testpaper_backend:/app/testpaper_backend:ro
+      - ./alembic:/app/alembic:ro
+      - ./scripts:/app/scripts:ro
+      - runtime-data:/var/lib/testpapers
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/postgres', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ${WEB_CONTEXT:-../TestPapers}
+      target: ${WEB_TARGET:-development}
+    environment:
+      TESTPAPERS_ENV: development
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: "3000"
+      NUXT_API_BASE: http://api:8000/api/v1
+      NUXT_PUBLIC_API_BASE: /api/v1
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ${WEB_CONTEXT:-../TestPapers}
+        target: /app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
   redis:
     image: redis:8-alpine
     profiles: ["async"]
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -46,7 +117,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       DATA_DIR: /var/lib/testpapers
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
-      TRUSTED_HOSTS: localhost,127.0.0.1
+      TRUSTED_HOSTS: localhost,127.0.0.1,api,web
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,8 +135,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-testpapers-local}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-testpapers-local-only}
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -80,3 +151,4 @@ volumes:
   redis-data:
   minio-data:
   runtime-data:
+  web-node-modules:
