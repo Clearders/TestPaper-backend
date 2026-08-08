@@ -101,18 +101,23 @@ jobs:
   container-verification:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      WEB_CONTEXT: ../TestPapers
     defaults:
       run:
         shell: bash
+        working-directory: TestPaper-backend
     steps:
       - name: Checkout Backend
         uses: actions/checkout@v7
+        with:
+          path: TestPaper-backend
 
       - name: Checkout Web
         uses: actions/checkout@v7
         with:
           repository: Clearders/TestPapers
-          path: ../TestPapers
+          path: TestPapers
           ref: main
 
       - name: Validate Compose
@@ -130,11 +135,11 @@ jobs:
             --build-arg NUXT_PUBLIC_API_BASE=/api/v1 \
             -t testpapers-web:runtime ../TestPapers
 
-      - name: Start database and api, wait for health
+      - name: Start database, migrate, and api; wait for health
         run: docker compose up -d --wait postgres api
 
-      - name: Migrate database from empty state
-        run: docker compose exec -T api alembic upgrade head
+      - name: Verify database is at the migration head
+        run: docker compose exec -T api alembic current --check-heads
 
       - name: Verify api health
         run: |
@@ -146,7 +151,7 @@ jobs:
             --network testpapers-cloud_default \
             testpapers-web:runtime
           ready=0
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if docker exec web-runtime-smoke node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
               ready=1
               break
@@ -154,7 +159,7 @@ jobs:
             sleep 2
           done
           test "$ready" = "1"
-          docker exec web-runtime-smoke node -e "fetch('http://api:8000/api/v1/health/postgres').then(r=>{console.log('status',r.status);process.exit(r.ok?0:1)}).catch(e=>{console.error(e);process.exit(1)})"
+          docker exec web-runtime-smoke node -e "fetch('http://127.0.0.1:3000/api/v1/health/postgres').then(r=>{console.log('proxied status',r.status);process.exit(r.ok?0:1)}).catch(e=>{console.error(e);process.exit(1)})"
 
       - name: Verify optional redis profile
         run: |

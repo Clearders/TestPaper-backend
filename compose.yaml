@@ -35,6 +35,7 @@ services:
   api:
     build:
       context: .
+    command: ["/bin/sh", "-c", "alembic upgrade head && exec testpaper-backend"]
     environment:
       TESTPAPERS_ENV: development
       API_HOST: 0.0.0.0
@@ -54,6 +55,7 @@ services:
     volumes:
       - ./testpaper_backend:/app/testpaper_backend:ro
       - ./alembic:/app/alembic:ro
+      - ./alembic.ini:/app/alembic.ini:ro
       - ./scripts:/app/scripts:ro
       - runtime-data:/var/lib/testpapers
     depends_on:
@@ -70,7 +72,7 @@ services:
   web:
     build:
       context: ${WEB_CONTEXT:-../TestPapers}
-      target: ${WEB_TARGET:-development}
+      target: development
     environment:
       TESTPAPERS_ENV: development
       NITRO_HOST: 0.0.0.0
@@ -119,7 +121,7 @@ services:
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       TRUSTED_HOSTS: localhost,127.0.0.1,api,web
     depends_on:
-      postgres:
+      api:
         condition: service_healthy
       redis:
         condition: service_healthy

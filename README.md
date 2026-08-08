@@ -52,8 +52,8 @@ See [docs/development.md](docs/development.md) for configuration profiles, the t
 ## Dockerized Cloud Development Environment
 
 `compose.yaml` starts the complete cloud dev stack — Web frontend, API, and
-PostgreSQL — with a single command; Redis/Celery/MinIO stay behind optional
-profiles:
+PostgreSQL — and applies pending database migrations with a single command;
+Redis/Celery/MinIO stay behind optional profiles:
 
 ```bash
 cp .env.example .env

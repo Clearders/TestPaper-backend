@@ -4,8 +4,9 @@
 > Last updated: 2026-08-07 (CLE-80)
 
 The Compose stack starts the complete cloud development environment —
-Web frontend, Backend API, and PostgreSQL — with a single command. Redis and
-Celery worker stay optional and are enabled by profile, so the core stack never
+Web frontend, Backend API, and PostgreSQL — with a single command. The API
+applies pending Alembic migrations before starting the server. Redis and Celery
+worker stay optional and are enabled by profile, so the core stack never
 hard-depends on them. Host ports are bound to `127.0.0.1` only.
 
 ## Prerequisites
@@ -13,7 +14,8 @@ hard-depends on them. Host ports are bound to `127.0.0.1` only.
 - Docker Engine with Compose v2 (`docker compose version`).
 - A sibling checkout of the web repository at `../TestPapers` relative to this
   repository (see [WEB_CONTEXT](#configuration)), with its own `Dockerfile`.
-- Nothing else. No Node.js, Python, PostgreSQL, or Redis on the host is needed.
+- Nothing else is required to run the stack. No Node.js, Python, PostgreSQL, or
+  Redis is needed on the host.
 
 ## Quick Start
 
@@ -61,8 +63,8 @@ docker compose up -d
 docker compose ps
 ```
 
-The `web` service waits for the `api` health check before starting, and the
-`api` service waits for PostgreSQL.
+The API waits for PostgreSQL, applies pending migrations, and then starts the
+server. The `web` service waits for the API health check.
 
 ### 4. View status and logs
 
@@ -72,15 +74,21 @@ docker compose logs -f web   # follow one service
 docker compose logs --tail=200 api
 ```
 
-### 5. Run database migrations
+### 5. Manage database migrations
+
+Pending migrations run automatically whenever the core stack starts. To apply
+them explicitly after creating a new revision:
 
 ```bash
-docker compose exec api alembic upgrade head
+docker compose run --rm api alembic upgrade head
 ```
 
-`api` mounts the host `alembic/` directory read-only, so `alembic
-revision --autogenerate` can also be run from the host and the new migration
-file appears immediately inside the container.
+`api` mounts the host `alembic/` directory read-only. Generate new revision
+files from the backend checkout, then rerun the migration command:
+
+```bash
+uv run --locked alembic revision --autogenerate -m "describe the change"
+```
 
 ```bash
 # Roll back one revision (dev only)
@@ -98,15 +106,18 @@ docker compose exec -e TESTPAPER_ADMIN_USERNAME=admin \
 ### 6. Run Web / Backend verification
 
 ```bash
-# Backend tests (inside the api image)
-docker compose exec api pytest -q
+# Backend tests (from the backend checkout)
+uv run --locked pytest -q
 
-# Backend config preflight
-docker compose exec api testpaper-config --env-file config/env/development.env.example
+# Backend config preflight (from the backend checkout)
+uv run --locked testpaper-config --env-file config/env/development.env.example
 
 # Web checks (inside the web image; runs lint/typecheck/checks/build)
 docker compose exec web npm run verify
 ```
+
+The host-side backend commands require Python 3.13 and `uv`; they are optional
+and are not needed to run the Compose stack.
 
 ### 7. Enable the Redis profile (optional)
 
@@ -133,18 +144,18 @@ Restarting the stack never deletes your development data.
 
 ```bash
 docker compose down          # remove containers + default network, keep volumes
-docker compose down -v      # ALSO delete data volumes — confirm before running
-docker compose down --profile async --profile object-storage -v   # incl. optional services
+docker compose down -v       # ALSO delete data volumes — confirm before running
+docker compose --profile async --profile object-storage down -v   # incl. optional services
 ```
 
 ### 10. Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
-| `web` never becomes healthy | First Nuxt dev build takes a while; see `docker compose logs web`. Check `NUXT_API_BASE`/`NUXT_PUBLIC_API_BASE` in `.env` are not overridden with invalid values. |
-| API starts but `/api/v1/health/postgres` returns 503 | PostgreSQL not migrated yet or wrong `POSTGRES_*` credentials in `.env`. Run `docker compose exec api alembic upgrade head`. |
+| `web` never becomes healthy | First Nuxt dev build takes a while; inspect `docker compose logs web`. |
+| API does not start | Inspect `docker compose logs api`; migration failures or incorrect `POSTGRES_*` credentials prevent API startup. |
 | Port already in use (3000/8000/5432) | Set `WEB_PORT`, `API_PORT`, `POSTGRES_PORT` in `.env` and re-run `docker compose up -d`. |
-| Web can't reach the API | The browser uses same-origin `/api/v1`, proxied server-side to `http://api:8000/api/v1`. If you overrode `NUXT_PUBLIC_API_BASE` to an absolute URL, ensure it is reachable from the browser. |
+| Web can't reach the API | The browser uses same-origin `/api/v1`, proxied server-side to `http://api:8000/api/v1`. Confirm the API is healthy and inspect `docker compose logs web api`. |
 | File permission errors on Linux | Host user id may differ from container user. For the web container (user `node`) ensure the checkout is readable; for the api container (user `testpapers`) the mounted source must be world-readable. |
 | `WEB_CONTEXT` path not found | The web repo must be checked out as a sibling directory (`../TestPapers`) or set `WEB_CONTEXT` to its absolute path in `.env`. |
 | Backend hot reload not picking up changes | Source mounts are read-only and uvicorn reloads on change; if a new directory is added, `docker compose up -d api` to recreate. |
@@ -161,7 +172,6 @@ are fixed by `compose.yaml`; host-facing values are overridable:
 | `POSTGRES_PORT` / `API_PORT` / `WEB_PORT` | `5432` / `8000` / `3000` | Host ports (bound to 127.0.0.1) |
 | `REDIS_PORT` / `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` | `6379` / `9000` / `9001` | Optional profile host ports |
 | `WEB_CONTEXT` | `../TestPapers` | Path to the web checkout used to build the `web` service |
-| `WEB_TARGET` | `development` | Build target; use `runtime` only for release-style builds |
 
 Secrets (real passwords, production credentials) must never be committed. The
 `.env` file is git-ignored; only `.env.example` is tracked.
@@ -198,4 +208,6 @@ docker build -t testpaper-api:local .
 
 The release image bakes the API endpoints at build time (Nitro proxy route
 rules are static). The API endpoint must therefore be passed as a build-arg, not
-only as a runtime environment variable.
+only as a runtime environment variable. The Compose `web` service deliberately
+uses the development target and bind mounts; run the immutable runtime image
+standalone or from a production-specific Compose file.
