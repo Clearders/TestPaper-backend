@@ -17,6 +17,8 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-ins
 
 COPY testpaper_backend ./testpaper_backend
 COPY scripts ./scripts
+COPY alembic ./alembic
+COPY alembic.ini ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
 RUN mkdir -p /var/lib/testpapers && chown -R testpapers:testpapers /app /var/lib/testpapers
