@@ -15,6 +15,7 @@ from testpaper_backend.schemas import (
     BankMemberCreate,
     BankMemberUpdate,
     BankRole,
+    BankSubscriptionUpdate,
     BankUpdate,
     UserEntity,
     UserRole,
@@ -81,7 +82,13 @@ def _item_row(*, question: SimpleNamespace, added_by: int = 1, created_at: Any =
     return SimpleNamespace(question=question, question_id=question.id, added_by=added_by, created_at=created_at)
 
 
-def _publication_row(*, version: int = 1, state: dict[str, Any] | None = None, created_by: int = 1):
+def _publication_row(
+    *,
+    version: int = 1,
+    state: dict[str, Any] | None = None,
+    created_by: int = 1,
+    withdrawn_at: datetime | None = None,
+):
     return SimpleNamespace(
         id=version,
         public_id=f"pub-{version}",
@@ -91,6 +98,7 @@ def _publication_row(*, version: int = 1, state: dict[str, Any] | None = None, c
         created_by=created_by,
         created_by_user=_user_ref(created_by),
         created_at=UTC_DT,
+        withdrawn_at=withdrawn_at,
     )
 
 
@@ -104,8 +112,15 @@ def _member_row(*, user_id: int, role: str = "viewer"):
     )
 
 
-def _subscription_row(*, user_id: int):
-    return SimpleNamespace(bank_id=1, user_id=user_id, created_at=UTC_DT)
+def _subscription_row(*, user_id: int, publication: Any | None = None):
+    return SimpleNamespace(
+        bank_id=1,
+        user_id=user_id,
+        publication_id=publication.id if publication else None,
+        publication=publication,
+        created_at=UTC_DT,
+        updated_at=UTC_DT,
+    )
 
 
 def _bank_row(
@@ -362,12 +377,12 @@ def test_withdraw_bank_not_published_409(monkeypatch: pytest.MonkeyPatch) -> Non
     assert exc_info.value.detail["code"] == "BANK_NOT_PUBLISHED"
 
 
-def test_withdraw_bank_deletes_latest_publication(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_withdraw_bank_retains_and_marks_latest_publication(monkeypatch: pytest.MonkeyPatch) -> None:
     row = _bank_row(owner_id=1, publications=[_publication_row(version=1)])
     session = _patch_session(monkeypatch, row)
     banks.withdraw_bank("bank-1", _user(1))
-    assert session.deleted[0].version == 1
-    row.publications = []
+    assert session.deleted == []
+    assert row.publications[0].withdrawn_at is not None
     assert banks._detail_from_row(row, _user(1)).version is None
 
 
@@ -431,15 +446,104 @@ def test_subscribe_private_bank_422(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_subscribe_public_bank_success_and_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
-    row = _bank_row(owner_id=1, visibility="public")
+    publication = _publication_row(version=1)
+    row = _bank_row(owner_id=1, visibility="public", publications=[publication])
     session = _patch_session(monkeypatch, row)
     subscription = banks.subscribe_bank("bank-1", _user(4, UserRole.viewer))
     assert session.committed is True
     assert subscription.userId == 4
+    assert subscription.version == 1
 
-    row.subscriptions = [_subscription_row(user_id=4)]
+    row.subscriptions = [_subscription_row(user_id=4, publication=publication)]
     banks.subscribe_bank("bank-1", _user(4, UserRole.viewer))
     assert len(session.added) == 1
+
+
+def test_subscribe_requires_active_publication(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = _bank_row(owner_id=1, visibility="public")
+    _patch_session(monkeypatch, row)
+    with pytest.raises(HTTPException) as exc_info:
+        banks.subscribe_bank("bank-1", _user(4, UserRole.viewer))
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "BANK_NOT_PUBLISHED"
+
+
+def test_update_subscription_advances_only_to_active_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    first = _publication_row(version=1, withdrawn_at=UTC_DT)
+    second = _publication_row(version=2)
+    subscription = _subscription_row(user_id=4, publication=first)
+    row = _bank_row(
+        owner_id=1,
+        visibility="public",
+        publications=[first, second],
+        subscriptions=[subscription],
+        latest_version=2,
+    )
+    session = _patch_session(monkeypatch, row)
+    updated = banks.update_subscription("bank-1", BankSubscriptionUpdate(version=2), _user(4, UserRole.viewer))
+    assert session.committed is True
+    assert updated.version == 2
+    assert subscription.publication_id == second.id
+
+    _patch_session(monkeypatch, row)
+    with pytest.raises(HTTPException) as exc_info:
+        banks.update_subscription("bank-1", BankSubscriptionUpdate(version=1), _user(4, UserRole.viewer))
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "BANK_VERSION_NOT_ACTIVE"
+
+
+def test_public_bank_detail_uses_active_snapshot_and_redacts_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = {
+        "version": 1,
+        "visibility": "public",
+        "publishedAt": "2026-08-05T00:00:00Z",
+        "bank": {"publicId": "bank-1", "name": "Published Bank", "description": "Stable"},
+        "items": [{"publicId": "q-1", "data": {"type": "single_choice", "answer": "SECRET"}}],
+    }
+    row = _bank_row(owner_id=1, visibility="public", publications=[_publication_row(version=1, state=state)])
+    _patch_session(monkeypatch, row)
+    detail = banks.get_public_bank("bank-1")
+    assert detail.name == "Published Bank"
+    assert detail.itemCount == 1
+    assert detail.state["items"][0]["data"]["answer"] == "[redacted]"
+
+
+def test_public_bank_discovery_uses_only_public_snapshot_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = {
+        "version": 1,
+        "visibility": "public",
+        "publishedAt": "2026-08-05T00:00:00Z",
+        "bank": {"publicId": "bank-1", "name": "Published Algebra", "description": ""},
+        "items": [],
+    }
+    row = _bank_row(owner_id=1, visibility="public", publications=[_publication_row(version=1, state=state)])
+    row.name = "Unpublished Geometry Rename"
+    row.description = "Mutable description"
+    _patch_session(monkeypatch, [row])
+
+    assert [bank.name for bank in banks.list_public_banks(q="algebra")] == ["Published Algebra"]
+    assert banks.list_public_banks(q="geometry") == []
+    summary = banks.list_public_banks()[0]
+    assert summary.description == ""
+
+
+def test_team_snapshot_cannot_become_anonymous_after_visibility_edit(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = {
+        "version": 1,
+        "visibility": "team",
+        "publishedAt": "2026-08-05T00:00:00Z",
+        "bank": {"publicId": "bank-1", "name": "Team Bank", "description": ""},
+        "items": [],
+    }
+    row = _bank_row(owner_id=1, visibility="public", publications=[_publication_row(version=1, state=state)])
+    _patch_session(monkeypatch, row)
+
+    with pytest.raises(HTTPException) as exc_info:
+        banks.get_public_bank("bank-1")
+    assert exc_info.value.status_code == 404
+
+    _patch_session(monkeypatch, [row])
+    assert banks.list_public_banks() == []
 
 
 def test_unsubscribe_removes_subscription(monkeypatch: pytest.MonkeyPatch) -> None:

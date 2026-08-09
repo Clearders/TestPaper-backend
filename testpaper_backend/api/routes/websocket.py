@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from testpaper_backend.config import get_cors_origins
 from testpaper_backend.schemas.realtime import serialize_server_message, validate_client_message
 from testpaper_backend.security import get_user_from_token
+from testpaper_backend.services.drafts import get_shared_draft
 from testpaper_backend.services.realtime import get_websocket_token, realtime
 from testpaper_backend.time_utils import now_utc
 
@@ -59,7 +60,27 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if message.event == "ping":
                 await websocket.send_json(serialize_server_message("pong", {"serverTime": now_utc()}))
+            elif message.event == "draft.subscribe":
+                get_shared_draft(message.draftId, current_user)
+                await realtime.subscribe_draft(
+                    websocket,
+                    message.draftId,
+                    {
+                        "publicId": current_user.publicId,
+                        "username": current_user.username,
+                        "displayName": current_user.displayName,
+                    },
+                )
+            elif message.event == "draft.unsubscribe":
+                await realtime.unsubscribe_draft(websocket, message.draftId)
+            elif message.event == "draft.presence.update":
+                updated = await realtime.update_presence(websocket, message.draftId, message.activity)
+                if not updated:
+                    await websocket.send_json(
+                        serialize_server_message("error", {"message": "Subscribe to the draft before updating presence"})
+                    )
     except WebSocketDisconnect:
         pass
     finally:
+        await realtime.remove_socket_presence(websocket)
         realtime.disconnect(websocket)

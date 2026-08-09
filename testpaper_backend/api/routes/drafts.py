@@ -169,7 +169,7 @@ def create_or_update_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = upsert_draft_collaborator(draft_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -184,7 +184,7 @@ def patch_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = update_draft_collaborator(draft_public_id, user_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -198,7 +198,7 @@ def remove_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = delete_draft_collaborator(draft_public_id, user_public_id, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
     return envelope(detail.model_dump(mode="json"), request)
 
 

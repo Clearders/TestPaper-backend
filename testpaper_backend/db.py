@@ -258,6 +258,7 @@ class BankPublicationRow(Base):
     state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_by: Mapped[int | None] = mapped_column("createdBy", ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    withdrawn_at: Mapped[datetime | None] = mapped_column("withdrawnAt", DateTime(timezone=True), nullable=True, index=True)
     bank: Mapped[QuestionBankRow] = relationship(back_populates="publications")
     created_by_user: Mapped[UserRow | None] = relationship(foreign_keys=[created_by])
 
@@ -267,9 +268,17 @@ class BankSubscriptionRow(Base):
 
     bank_id: Mapped[int] = mapped_column("bankId", ForeignKey("question_banks.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[int] = mapped_column("userId", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    publication_id: Mapped[int | None] = mapped_column(
+        "publicationId",
+        ForeignKey("bank_publications.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     bank: Mapped[QuestionBankRow] = relationship(back_populates="subscriptions")
     user: Mapped[UserRow] = relationship()
+    publication: Mapped[BankPublicationRow | None] = relationship()
 
 
 DATABASE_URL = get_database_url(required=False)

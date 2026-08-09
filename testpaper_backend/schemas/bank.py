@@ -25,6 +25,13 @@ class BankAccessRole(StrEnum):
     viewer = "viewer"
 
 
+class BankListScope(StrEnum):
+    visible = "visible"
+    owned = "owned"
+    subscribed = "subscribed"
+    public = "public"
+
+
 class BankUserRef(BaseModel):
     publicId: str
     username: str
@@ -50,6 +57,9 @@ class QuestionBankSummary(BaseModel):
     itemCount: int = 0
     memberCount: int = 0
     subscriberCount: int = 0
+    isSubscribed: bool = False
+    subscribedVersion: int | None = None
+    hasUpdate: bool = False
     createdAt: datetime
     updatedAt: datetime
 
@@ -129,6 +139,11 @@ class BankForkRequest(BaseModel):
     version: int | None = Field(default=None, gt=0)
 
 
+class BankSubscriptionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(gt=0)
+
+
 class BankPublicationEntity(BaseModel):
     id: int
     publicId: str
@@ -137,6 +152,7 @@ class BankPublicationEntity(BaseModel):
     state: dict[str, Any]
     createdBy: BankUserRef | None = None
     createdAt: datetime
+    withdrawnAt: datetime | None = None
 
 
 class BankVersionSummary(BaseModel):
@@ -145,9 +161,28 @@ class BankVersionSummary(BaseModel):
     version: int
     createdBy: BankUserRef | None = None
     createdAt: datetime
+    withdrawnAt: datetime | None = None
+    isActive: bool = False
 
 
 class BankSubscriptionEntity(BaseModel):
     bankId: int
     userId: int
+    version: int | None = None
     createdAt: datetime
+    updatedAt: datetime
+
+
+class PublicBankSummary(BaseModel):
+    publicId: str
+    name: str
+    description: str
+    owner: BankUserRef | None = None
+    version: int
+    publishedAt: datetime
+    itemCount: int = 0
+    subscriberCount: int = 0
+
+
+class PublicBankDetail(PublicBankSummary):
+    state: dict[str, Any]
