@@ -121,8 +121,7 @@ class MigrationOperation:
         missing_remote = set(remote_cols) - referent.columns
         if missing_local or missing_remote:
             raise AssertionError(
-                f"foreign key {name} references missing columns: "
-                f"local={sorted(missing_local)}, remote={sorted(missing_remote)}"
+                f"foreign key {name} references missing columns: local={sorted(missing_local)}, remote={sorted(missing_remote)}"
             )
         if name in source.constraints:
             raise AssertionError(f"constraint already exists: {name}")
