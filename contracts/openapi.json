@@ -8,6 +8,16 @@
             "title": "Event",
             "type": "string"
           },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
           "payload": {
             "$ref": "#/components/schemas/AuthConnectedPayload"
           }
@@ -547,6 +557,16 @@
             "title": "Event",
             "type": "string"
           },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
           "payload": {
             "$ref": "#/components/schemas/DraftChangedPayload"
           }
@@ -594,6 +614,34 @@
         "title": "DraftCollaboratorRole",
         "type": "string"
       },
+      "DraftCollaboratorsUpdatedEvent": {
+        "properties": {
+          "event": {
+            "const": "draft.collaborators.updated",
+            "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/DraftChangedPayload"
+          }
+        },
+        "required": [
+          "event",
+          "payload"
+        ],
+        "title": "DraftCollaboratorsUpdatedEvent",
+        "type": "object"
+      },
       "DraftCommentStatus": {
         "enum": [
           "open",
@@ -607,6 +655,16 @@
           "event": {
             "const": "draft.deleted",
             "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
             "type": "string"
           },
           "payload": {
@@ -638,6 +696,110 @@
         "title": "DraftDeletedPayload",
         "type": "object"
       },
+      "DraftPresenceMember": {
+        "properties": {
+          "activity": {
+            "enum": [
+              "viewing",
+              "editing"
+            ],
+            "title": "Activity",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "title": "Lastseenat",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/DraftUserRef"
+          }
+        },
+        "required": [
+          "user",
+          "activity",
+          "lastSeenAt"
+        ],
+        "title": "DraftPresenceMember",
+        "type": "object"
+      },
+      "DraftPresenceSnapshotEvent": {
+        "properties": {
+          "event": {
+            "const": "draft.presence.snapshot",
+            "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/DraftPresenceSnapshotPayload"
+          }
+        },
+        "required": [
+          "event",
+          "payload"
+        ],
+        "title": "DraftPresenceSnapshotEvent",
+        "type": "object"
+      },
+      "DraftPresenceSnapshotPayload": {
+        "properties": {
+          "draftId": {
+            "title": "Draftid",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/DraftPresenceMember"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "draftId",
+          "members"
+        ],
+        "title": "DraftPresenceSnapshotPayload",
+        "type": "object"
+      },
+      "DraftPresenceUpdateEvent": {
+        "properties": {
+          "activity": {
+            "enum": [
+              "viewing",
+              "editing"
+            ],
+            "title": "Activity",
+            "type": "string"
+          },
+          "draftId": {
+            "title": "Draftid",
+            "type": "string"
+          },
+          "event": {
+            "const": "draft.presence.update",
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "draftId",
+          "activity"
+        ],
+        "title": "DraftPresenceUpdateEvent",
+        "type": "object"
+      },
       "DraftReviewStatus": {
         "enum": [
           "draft",
@@ -647,6 +809,44 @@
         ],
         "title": "DraftReviewStatus",
         "type": "string"
+      },
+      "DraftSubscribeEvent": {
+        "properties": {
+          "draftId": {
+            "title": "Draftid",
+            "type": "string"
+          },
+          "event": {
+            "const": "draft.subscribe",
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "draftId"
+        ],
+        "title": "DraftSubscribeEvent",
+        "type": "object"
+      },
+      "DraftUnsubscribeEvent": {
+        "properties": {
+          "draftId": {
+            "title": "Draftid",
+            "type": "string"
+          },
+          "event": {
+            "const": "draft.unsubscribe",
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "draftId"
+        ],
+        "title": "DraftUnsubscribeEvent",
+        "type": "object"
       },
       "DraftUserRef": {
         "properties": {
@@ -1350,6 +1550,16 @@
             "title": "Event",
             "type": "string"
           },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
           "payload": {
             "$ref": "#/components/schemas/ErrorPayload"
           }
@@ -1631,6 +1841,16 @@
               "paper.updated"
             ],
             "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
             "type": "string"
           },
           "payload": {
@@ -2745,6 +2965,16 @@
             "title": "Event",
             "type": "string"
           },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
           "payload": {
             "$ref": "#/components/schemas/PaperQuestionRemovedPayload"
           }
@@ -2791,6 +3021,16 @@
               "paper.questions.reordered"
             ],
             "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
             "type": "string"
           },
           "payload": {
@@ -2926,6 +3166,16 @@
           "event": {
             "const": "pong",
             "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
             "type": "string"
           },
           "payload": {
@@ -3327,6 +3577,16 @@
             "title": "Event",
             "type": "string"
           },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
           "payload": {
             "$ref": "#/components/schemas/QuestionChangedPayload"
           }
@@ -3573,6 +3833,16 @@
           "event": {
             "const": "question.deleted",
             "title": "Event",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "title": "Eventid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
             "type": "string"
           },
           "payload": {
@@ -4083,6 +4353,9 @@
       "RealtimeClientMessage": {
         "discriminator": {
           "mapping": {
+            "draft.presence.update": "#/components/schemas/DraftPresenceUpdateEvent",
+            "draft.subscribe": "#/components/schemas/DraftSubscribeEvent",
+            "draft.unsubscribe": "#/components/schemas/DraftUnsubscribeEvent",
             "ping": "#/components/schemas/RealtimePing"
           },
           "propertyName": "event"
@@ -4090,6 +4363,15 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/RealtimePing"
+          },
+          {
+            "$ref": "#/components/schemas/DraftSubscribeEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DraftUnsubscribeEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DraftPresenceUpdateEvent"
           }
         ]
       },
@@ -4111,9 +4393,11 @@
         "discriminator": {
           "mapping": {
             "auth.connected": "#/components/schemas/AuthConnectedEvent",
+            "draft.collaborators.updated": "#/components/schemas/DraftCollaboratorsUpdatedEvent",
             "draft.comment.created": "#/components/schemas/DraftChangedEvent",
             "draft.comment.updated": "#/components/schemas/DraftChangedEvent",
             "draft.deleted": "#/components/schemas/DraftDeletedEvent",
+            "draft.presence.snapshot": "#/components/schemas/DraftPresenceSnapshotEvent",
             "draft.review.updated": "#/components/schemas/DraftChangedEvent",
             "draft.updated": "#/components/schemas/DraftChangedEvent",
             "error": "#/components/schemas/ErrorEvent",
@@ -4159,6 +4443,12 @@
           },
           {
             "$ref": "#/components/schemas/DraftDeletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DraftPresenceSnapshotEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DraftCollaboratorsUpdatedEvent"
           }
         ]
       },

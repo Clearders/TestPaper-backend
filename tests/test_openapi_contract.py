@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from uuid import UUID
 
 from testpaper_backend.application import app
 from testpaper_backend.core.openapi import DOCX_MEDIA_TYPE
@@ -61,7 +63,20 @@ def test_realtime_messages_are_validated_and_json_serializable() -> None:
     assert ping.event == "ping"
     pong = serialize_server_message("pong", {"serverTime": "2026-08-02T12:00:00Z"})
     assert pong["event"] == "pong"
+    assert UUID(pong["eventId"])
+    assert isinstance(datetime.fromisoformat(pong["occurredAt"]), datetime)
     json.dumps(pong)
+
+
+def test_realtime_server_envelope_preserves_relay_metadata() -> None:
+    pong = serialize_server_message(
+        "pong",
+        {"serverTime": "2026-08-02T12:00:00Z"},
+        event_id="123e4567-e89b-12d3-a456-426614174000",
+        occurred_at="2026-08-02T12:00:01Z",
+    )
+    assert pong["eventId"] == "123e4567-e89b-12d3-a456-426614174000"
+    assert pong["occurredAt"] == "2026-08-02T12:00:01Z"
 
 
 def test_all_documented_json_errors_use_error_envelope() -> None:

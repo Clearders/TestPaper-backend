@@ -303,12 +303,21 @@ Cloud draft downloads use `GET /api/v1/drafts/{draft_public_id}/download`. The r
 | `paper.questions.added` | Questions added to paper |
 | `paper.question.removed` | Question removed from paper |
 | `paper.questions.reordered` | Paper question order changed |
-| `draft.updated` | Shared draft created, edited, renamed, or sharing changed |
+| `draft.updated` | Shared draft created, edited, or renamed |
+| `draft.collaborators.updated` | Shared draft collaborators or roles changed |
 | `draft.deleted` | Shared draft deleted |
 | `draft.review.updated` | Shared draft review status changed |
 | `draft.comment.created` | Shared draft comment added |
 | `draft.comment.updated` | Shared draft comment edited or resolved |
+| `draft.presence.snapshot` | Authorized draft-room online/editing membership changed |
 | `pong` | Reply to client `{ "event": "ping" }` |
+
+Every server event includes a unique `eventId` and UTC `occurredAt`; clients use
+the identifier to discard relay or reconnect duplicates. Draft clients subscribe
+with `draft.subscribe`, renew `draft.presence.update` every 15 seconds, and send
+`draft.unsubscribe` when leaving. Presence is aggregated across API instances in
+Redis, expires after 45 seconds, and falls back to the current instance when Redis
+is unavailable. Subscriptions are authorized against draft read access.
 
 Per-IP WebSocket limit: 10 concurrent connections.
 
