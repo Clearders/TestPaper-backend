@@ -11,7 +11,7 @@ from pydantic import TypeAdapter
 from testpaper_backend.schemas.common import ErrorEnvelope
 from testpaper_backend.schemas.realtime import CLIENT_MESSAGE_ADAPTER, SERVER_MESSAGE_ADAPTER
 
-API_CONTRACT_VERSION = "1.0.0"
+API_CONTRACT_VERSION = "1.1.0"
 API_CONTRACT_TITLE = "TestPaper Backend"
 OPENAPI_VERSION = "3.1.0"
 
@@ -73,6 +73,7 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
         "/api/v1/auth/register",
         "/api/v1/health/",
         "/api/v1/meta/",
+        "/api/v1/public/",
     )
     unsafe_methods = {"post", "put", "patch", "delete"}
 

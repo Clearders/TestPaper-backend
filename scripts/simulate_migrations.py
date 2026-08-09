@@ -106,6 +106,28 @@ class MigrationOperation:
             raise AssertionError(f"constraint already exists: {name}")
         table.constraints.add(name)
 
+    def create_foreign_key(
+        self,
+        name: str,
+        source_table: str,
+        referent_table: str,
+        local_cols: list[str],
+        remote_cols: list[str],
+        **_: Any,
+    ) -> None:
+        source = self._table(source_table)
+        referent = self._table(referent_table)
+        missing_local = set(local_cols) - source.columns
+        missing_remote = set(remote_cols) - referent.columns
+        if missing_local or missing_remote:
+            raise AssertionError(
+                f"foreign key {name} references missing columns: "
+                f"local={sorted(missing_local)}, remote={sorted(missing_remote)}"
+            )
+        if name in source.constraints:
+            raise AssertionError(f"constraint already exists: {name}")
+        source.constraints.add(name)
+
     def drop_constraint(self, name: str, table_name: str, **_: Any) -> None:
         table = self._table(table_name)
         if name not in table.constraints:

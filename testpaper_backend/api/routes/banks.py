@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Query, Request, Response, status
 
 from testpaper_backend.api.dependencies import CurrentUserDep, RateLimitWriteDep
 from testpaper_backend.core.responses import envelope
@@ -10,13 +10,18 @@ from testpaper_backend.schemas import (
     BankCreate,
     BankForkRequest,
     BankItemAdd,
+    BankListScope,
     BankMemberCreate,
     BankMemberUpdate,
     BankPublicationEntity,
     BankSubscriptionEntity,
+    BankSubscriptionUpdate,
     BankUpdate,
     BankVersionSummary,
+    BankVisibility,
     Envelope,
+    PublicBankDetail,
+    PublicBankSummary,
     QuestionBankEntity,
     QuestionBankSummary,
     QuestionEntity,
@@ -29,8 +34,10 @@ from testpaper_backend.services.banks import (
     fork_bank,
     get_bank_detail,
     get_bank_version,
+    get_public_bank,
     list_bank_questions,
     list_bank_versions,
+    list_public_banks,
     list_visible_banks,
     publish_bank,
     remove_bank_item,
@@ -39,17 +46,37 @@ from testpaper_backend.services.banks import (
     unsubscribe_bank,
     update_bank,
     update_bank_member_role,
+    update_subscription,
     withdraw_bank,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/banks", tags=["banks"])
+public_router = APIRouter(prefix="/api/v1/public/banks", tags=["public-banks"])
+
+
+@public_router.get("", response_model=Envelope[list[PublicBankSummary]])
+def list_public_bank_snapshots(request: Request, q: str | None = Query(default=None, max_length=120)):
+    banks = list_public_banks(q=q)
+    return envelope([bank.model_dump(mode="json") for bank in banks], request)
+
+
+@public_router.get("/{bank_public_id}", response_model=Envelope[PublicBankDetail])
+def get_public_bank_snapshot(request: Request, bank_public_id: str):
+    detail = get_public_bank(bank_public_id)
+    return envelope(detail.model_dump(mode="json"), request)
 
 
 @router.get("", response_model=Envelope[list[QuestionBankSummary]])
-def list_banks(request: Request, current_user: CurrentUserDep):
-    banks = list_visible_banks(current_user)
+def list_banks(
+    request: Request,
+    current_user: CurrentUserDep,
+    q: str | None = Query(default=None, max_length=120),
+    visibility: BankVisibility | None = None,
+    scope: BankListScope = BankListScope.visible,
+):
+    banks = list_visible_banks(current_user, q=q, visibility=visibility, scope=scope)
     return envelope([bank.model_dump(mode="json") for bank in banks], request)
 
 
@@ -170,6 +197,18 @@ def fork(request: Request, bank_public_id: str, payload: BankForkRequest, curren
 @router.post("/{bank_public_id}/subscribe", response_model=Envelope[BankSubscriptionEntity])
 def subscribe(request: Request, bank_public_id: str, current_user: CurrentUserDep, _: RateLimitWriteDep):
     item = subscribe_bank(bank_public_id, current_user)
+    return envelope(item.model_dump(mode="json"), request)
+
+
+@router.patch("/{bank_public_id}/subscribe", response_model=Envelope[BankSubscriptionEntity])
+def patch_subscription(
+    request: Request,
+    bank_public_id: str,
+    payload: BankSubscriptionUpdate,
+    current_user: CurrentUserDep,
+    _: RateLimitWriteDep,
+):
+    item = update_subscription(bank_public_id, payload, current_user)
     return envelope(item.model_dump(mode="json"), request)
 
 

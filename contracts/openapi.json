@@ -128,6 +128,16 @@
         "title": "BankItemAdd",
         "type": "object"
       },
+      "BankListScope": {
+        "enum": [
+          "visible",
+          "owned",
+          "subscribed",
+          "public"
+        ],
+        "title": "BankListScope",
+        "type": "string"
+      },
       "BankMemberCreate": {
         "additionalProperties": false,
         "properties": {
@@ -226,6 +236,18 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawnat"
           }
         },
         "required": [
@@ -258,17 +280,49 @@
             "title": "Createdat",
             "type": "string"
           },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
           "userId": {
             "title": "Userid",
             "type": "integer"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "required": [
           "bankId",
           "userId",
-          "createdAt"
+          "createdAt",
+          "updatedAt"
         ],
         "title": "BankSubscriptionEntity",
+        "type": "object"
+      },
+      "BankSubscriptionUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "exclusiveMinimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "BankSubscriptionUpdate",
         "type": "object"
       },
       "BankUpdate": {
@@ -357,6 +411,11 @@
             "title": "Id",
             "type": "integer"
           },
+          "isActive": {
+            "default": false,
+            "title": "Isactive",
+            "type": "boolean"
+          },
           "publicId": {
             "title": "Publicid",
             "type": "string"
@@ -364,6 +423,18 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawnat"
           }
         },
         "required": [
@@ -776,6 +847,28 @@
         "title": "Envelope[PaperExpandedEntity]",
         "type": "object"
       },
+      "Envelope_PublicBankDetail_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicBankDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[PublicBankDetail]",
+        "type": "object"
+      },
       "Envelope_QuestionBankEntity_": {
         "properties": {
           "data": {
@@ -1016,6 +1109,32 @@
           "meta"
         ],
         "title": "Envelope[list[PaperDraftSummary]]",
+        "type": "object"
+      },
+      "Envelope_list_PublicBankSummary__": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicBankSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[list[PublicBankSummary]]",
         "type": "object"
       },
       "Envelope_list_QuestionBankSummary__": {
@@ -2867,6 +2986,120 @@
         "title": "ProfileUpdate",
         "type": "object"
       },
+      "PublicBankDetail": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "itemCount": {
+            "default": 0,
+            "title": "Itemcount",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BankUserRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicId": {
+            "title": "Publicid",
+            "type": "string"
+          },
+          "publishedAt": {
+            "format": "date-time",
+            "title": "Publishedat",
+            "type": "string"
+          },
+          "state": {
+            "additionalProperties": true,
+            "title": "State",
+            "type": "object"
+          },
+          "subscriberCount": {
+            "default": 0,
+            "title": "Subscribercount",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "publicId",
+          "name",
+          "description",
+          "version",
+          "publishedAt",
+          "state"
+        ],
+        "title": "PublicBankDetail",
+        "type": "object"
+      },
+      "PublicBankSummary": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "itemCount": {
+            "default": 0,
+            "title": "Itemcount",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BankUserRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publicId": {
+            "title": "Publicid",
+            "type": "string"
+          },
+          "publishedAt": {
+            "format": "date-time",
+            "title": "Publishedat",
+            "type": "string"
+          },
+          "subscriberCount": {
+            "default": 0,
+            "title": "Subscribercount",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "publicId",
+          "name",
+          "description",
+          "version",
+          "publishedAt"
+        ],
+        "title": "PublicBankSummary",
+        "type": "object"
+      },
       "QuestionBankEntity": {
         "properties": {
           "accessRole": {
@@ -2881,9 +3114,19 @@
             "title": "Description",
             "type": "string"
           },
+          "hasUpdate": {
+            "default": false,
+            "title": "Hasupdate",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "isSubscribed": {
+            "default": false,
+            "title": "Issubscribed",
+            "type": "boolean"
           },
           "itemCount": {
             "default": 0,
@@ -2919,6 +3162,17 @@
           "publicId": {
             "title": "Publicid",
             "type": "string"
+          },
+          "subscribedVersion": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscribedversion"
           },
           "subscriberCount": {
             "default": 0,
@@ -2972,9 +3226,19 @@
             "title": "Description",
             "type": "string"
           },
+          "hasUpdate": {
+            "default": false,
+            "title": "Hasupdate",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "isSubscribed": {
+            "default": false,
+            "title": "Issubscribed",
+            "type": "boolean"
           },
           "itemCount": {
             "default": 0,
@@ -3003,6 +3267,17 @@
           "publicId": {
             "title": "Publicid",
             "type": "string"
+          },
+          "subscribedVersion": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscribedversion"
           },
           "subscriberCount": {
             "default": 0,
@@ -4222,7 +4497,7 @@
     "description": "The canonical HTTP contract for `/api/v1`. Browser clients use Cookie + CSRF authentication; native clients inject Bearer credentials. WebSocket messages are described by `x-testpapers-websocket`.",
     "summary": "Versioned Cloud contract shared by TestPapers Web, Desktop, and Mobile.",
     "title": "TestPaper Backend",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5295,6 +5570,50 @@
     "/api/v1/banks": {
       "get": {
         "operationId": "list_banks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BankVisibility"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Visibility"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/BankListScope",
+              "default": "visible"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6701,6 +7020,115 @@
           }
         ],
         "summary": "Unsubscribe",
+        "tags": [
+          "banks"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_subscription",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_public_id",
+            "required": true,
+            "schema": {
+              "title": "Bank Public Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankSubscriptionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_BankSubscriptionEntity_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The write rate limit was exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": [],
+            "csrfToken": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Patch Subscription",
         "tags": [
           "banks"
         ]
@@ -9834,6 +10262,130 @@
         "summary": "Remove Paper Question",
         "tags": [
           "papers"
+        ]
+      }
+    },
+    "/api/v1/public/banks": {
+      "get": {
+        "operationId": "list_public_bank_snapshots",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_list_PublicBankSummary__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [],
+        "summary": "List Public Bank Snapshots",
+        "tags": [
+          "public-banks"
+        ]
+      }
+    },
+    "/api/v1/public/banks/{bank_public_id}": {
+      "get": {
+        "operationId": "get_public_bank_snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bank_public_id",
+            "required": true,
+            "schema": {
+              "title": "Bank Public Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PublicBankDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [],
+        "summary": "Get Public Bank Snapshot",
+        "tags": [
+          "public-banks"
         ]
       }
     },
