@@ -365,7 +365,7 @@ def test_delete_cloud_draft_broadcasts_deleted_event(monkeypatch) -> None:
         "delete_shared_draft",
         lambda draft_public_id, current_user: delete_calls.append((draft_public_id, current_user.id)),
     )
-    monkeypatch.setattr(draft_routes, "realtime", SimpleNamespace(broadcast=broadcast))
+    monkeypatch.setattr(draft_routes, "realtime", SimpleNamespace(broadcast_to_draft=broadcast))
 
     response = draft_routes.delete_draft(FakeBackgroundTasks(), "draft-cloud", teacher, None)
 
@@ -375,6 +375,7 @@ def test_delete_cloud_draft_broadcasts_deleted_event(monkeypatch) -> None:
         (
             broadcast,
             (
+                "draft-cloud",
                 "draft.deleted",
                 {
                     "draftId": "draft-cloud",
@@ -403,7 +404,8 @@ def test_production_security_configuration_is_fail_closed(monkeypatch) -> None:
     assert production_app.openapi_url is None
 
 
-def test_bearer_requests_do_not_require_cookie_csrf() -> None:
+def test_bearer_requests_do_not_require_cookie_csrf(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("testpaper_backend.core.csrf.get_auth_cookie_name", lambda: "auth")
     csrf_app = FastAPI()
     csrf_app.add_middleware(CSRFMiddleware)
 
@@ -423,6 +425,14 @@ def test_bearer_requests_do_not_require_cookie_csrf() -> None:
     )
     assert bearer_response.status_code == 200
     assert bearer_response.json() == {"ok": True}
+
+    client.cookies.set("auth", "browser-session")
+    mixed_response = client.post(
+        "/write",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+    assert mixed_response.status_code == 403
+    assert mixed_response.json()["error"]["code"] == "CSRF_MISSING"
 
 
 def test_hsts_requires_secure_production_cookie(monkeypatch) -> None:

@@ -71,6 +71,7 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
     anonymous_prefixes = (
         "/api/v1/auth/login",
         "/api/v1/auth/register",
+        "/api/v1/auth/token",
         "/api/v1/health/",
         "/api/v1/meta/",
         "/api/v1/public/",
@@ -90,7 +91,9 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 continue
 
             anonymous = any(path.startswith(prefix) for prefix in anonymous_prefixes)
-            if anonymous:
+            if path == "/api/v1/auth/refresh":
+                operation["security"] = [{"cookieAuth": [], "csrfToken": []}]
+            elif anonymous:
                 operation["security"] = []
             elif method in unsafe_methods:
                 operation["security"] = [

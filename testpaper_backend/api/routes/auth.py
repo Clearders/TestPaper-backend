@@ -22,7 +22,7 @@ from testpaper_backend.schemas import (
     TokenPair,
     UserEntity,
 )
-from testpaper_backend.security import get_request_token
+from testpaper_backend.security import get_request_token, get_session_cookie_token
 from testpaper_backend.services.auth_sessions import (
     DeviceInfo,
     authenticate_native,
@@ -76,7 +76,7 @@ def get_me(request: Request, current_user: CurrentUserDep):
 
 @router.post("/refresh", response_model=Envelope[AuthSession])
 def refresh_session(request: Request, response: Response):
-    token, auth_session = refresh_auth_session(get_request_token(request))
+    token, auth_session = refresh_auth_session(get_session_cookie_token(request))
     set_auth_cookie(response, token, auth_session.expiresAt)
     set_csrf_cookie(response, generate_csrf_token(), auth_session.expiresAt)
     return envelope(auth_session.model_dump(mode="json"), request)

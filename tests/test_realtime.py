@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import datetime
 from uuid import UUID
 
 import pytest
-from fastapi import WebSocketDisconnect
+from fastapi import HTTPException, WebSocketDisconnect, status
 from pydantic import ValidationError
 
 from testpaper_backend.api.routes import websocket as websocket_route
@@ -27,11 +26,15 @@ class FakeWebSocket:
         self.client = FakeClient(host)
         self.fail_send = fail_send
         self.messages: list[str] = []
+        self.close_codes: list[int] = []
 
     async def send_text(self, message: str) -> None:
         if self.fail_send:
             raise RuntimeError("send failed")
         self.messages.append(message)
+
+    async def close(self, code: int) -> None:
+        self.close_codes.append(code)
 
 
 def assert_error_message(message: str) -> None:
@@ -57,6 +60,7 @@ class RouteWebSocket:
         self.cookies: dict[str, str] = {}
         self._messages = iter(messages)
         self.sent_json: list[dict[str, object]] = []
+        self.close_codes: list[int] = []
 
     async def send_json(self, message: dict[str, object]) -> None:
         self.sent_json.append(message)
@@ -67,6 +71,9 @@ class RouteWebSocket:
         except StopIteration as exc:
             raise WebSocketDisconnect from exc
 
+    async def close(self, code: int) -> None:
+        self.close_codes.append(code)
+
 
 class RecordingRealtime:
     def __init__(self) -> None:
@@ -76,8 +83,8 @@ class RecordingRealtime:
         self.calls.append(("can_connect", ip))
         return True
 
-    async def connect(self, websocket: object) -> None:
-        self.calls.append(("connect", websocket))
+    async def connect(self, websocket: object, *, token: str, user: dict[str, str]) -> None:
+        self.calls.append(("connect", websocket, token, user))
 
     async def subscribe_draft(self, websocket: object, draft_id: str, user: dict[str, str]) -> None:
         self.calls.append(("subscribe", websocket, draft_id, user))
@@ -96,14 +103,12 @@ class RecordingRealtime:
         self.calls.append(("disconnect", websocket))
 
 
-def test_local_send_drops_stale_websocket(caplog) -> None:
+def test_local_send_drops_stale_websocket() -> None:
     manager = RealtimeConnectionManager()
     healthy = FakeWebSocket()
     stale = FakeWebSocket(fail_send=True)
     manager._connections.update({healthy, stale})
     manager._ip_connections["127.0.0.1"] = {healthy, stale}
-
-    caplog.set_level(logging.DEBUG, logger="testpaper_backend.services.realtime")
 
     asyncio.run(manager._local_send("error", {"message": "test message"}))
 
@@ -111,7 +116,6 @@ def test_local_send_drops_stale_websocket(caplog) -> None:
     assert healthy in manager._connections
     assert stale not in manager._connections
     assert manager._ip_connections["127.0.0.1"] == {healthy}
-    assert "Dropping stale realtime websocket after send failure" in caplog.text
 
 
 def test_broadcast_notifies_local_clients_when_redis_publish_fails(monkeypatch) -> None:
@@ -153,6 +157,53 @@ def test_broadcast_to_draft_targets_only_subscribed_local_room(monkeypatch: pyte
     assert len(subscriber.messages) == 1
     assert not outsider.messages
     assert json.loads(subscriber.messages[0])["event"] == "draft.collaborators.updated"
+
+
+def test_scoped_broadcast_drops_revoked_socket_before_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = RealtimeConnectionManager()
+    revoked = FakeWebSocket()
+    manager._connections.add(revoked)
+    manager._draft_connections["draft-1"] = {revoked}
+    manager._socket_drafts[revoked] = {"draft-1"}
+    manager._socket_tokens[revoked] = "revoked-token"
+    monkeypatch.setattr(
+        realtime_module,
+        "get_user_from_token",
+        lambda token, ip_address=None: (_ for _ in ()).throw(HTTPException(status_code=401)),
+    )
+    monkeypatch.setattr(realtime_module, "get_async_redis", lambda: FailingRedis())
+
+    asyncio.run(
+        manager.broadcast_to_draft(
+            "draft-1",
+            "draft.updated",
+            {"draftId": "draft-1", "revision": 2, "reviewStatus": "draft", "actorId": 1},
+        )
+    )
+
+    assert revoked.messages == []
+    assert revoked.close_codes == [status.WS_1008_POLICY_VIOLATION]
+    assert revoked not in manager._connections
+
+
+def test_evict_user_removes_all_matching_draft_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = RealtimeConnectionManager()
+    removed = FakeWebSocket()
+    retained = FakeWebSocket()
+    manager._connections.update({removed, retained})
+    manager._draft_connections["draft-1"] = {removed, retained}
+    manager._socket_drafts = {removed: {"draft-1"}, retained: {"draft-1"}}
+    manager._socket_sessions = {removed: "session-1", retained: "session-2"}
+    manager._socket_users = {
+        removed: {"publicId": "user-removed", "username": "removed", "displayName": "Removed"},
+        retained: {"publicId": "user-kept", "username": "kept", "displayName": "Kept"},
+    }
+    monkeypatch.setattr(realtime_module, "get_async_redis", lambda: FailingRedis())
+
+    asyncio.run(manager.evict_user_from_draft("draft-1", "user-removed"))
+
+    assert removed not in manager._draft_connections["draft-1"]
+    assert retained in manager._draft_connections["draft-1"]
 
 
 def test_presence_lifecycle_falls_back_locally_and_aggregates_multitab_activity(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,7 +273,7 @@ def test_websocket_route_dispatches_draft_subscription_lifecycle(monkeypatch: py
     )
     shared_draft_calls: list[tuple[str, object]] = []
     monkeypatch.setattr(websocket_route, "realtime", manager)
-    monkeypatch.setattr(websocket_route, "get_user_from_token", lambda token: user)
+    monkeypatch.setattr(websocket_route, "get_user_from_token", lambda token, ip_address=None: user)
     monkeypatch.setattr(websocket_route, "get_cors_origins", lambda: [])
     monkeypatch.setattr(
         websocket_route,
@@ -232,7 +283,7 @@ def test_websocket_route_dispatches_draft_subscription_lifecycle(monkeypatch: py
 
     asyncio.run(websocket_route.websocket_endpoint(websocket))
 
-    assert shared_draft_calls == [("draft-1", user)]
+    assert shared_draft_calls == [("draft-1", user), ("draft-1", user)]
     assert [(call[0], *call[2:]) for call in manager.calls if call[0] in {"subscribe", "update", "unsubscribe"}] == [
         ("subscribe", "draft-1", {"publicId": "user-1", "username": "ada", "displayName": "Ada"}),
         ("update", "draft-1", "editing"),

@@ -22,8 +22,12 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    token = get_websocket_token(websocket)
+    if token is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
     try:
-        current_user = get_user_from_token(get_websocket_token(websocket))
+        current_user = get_user_from_token(token)
     except HTTPException:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -34,7 +38,12 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=status.WS_1013_TRY_AGAIN_LATER)
         return
 
-    await realtime.connect(websocket)
+    user_ref = {
+        "publicId": current_user.publicId,
+        "username": current_user.username,
+        "displayName": current_user.displayName,
+    }
+    await realtime.connect(websocket, token=token, user=user_ref)
     try:
         await websocket.send_json(
             serialize_server_message(
@@ -47,6 +56,11 @@ async def websocket_endpoint(websocket: WebSocket):
         )
         while True:
             raw_message = await websocket.receive_text()
+            try:
+                current_user = get_user_from_token(token, client_ip)
+            except HTTPException:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
             try:
                 message = json.loads(raw_message)
             except json.JSONDecodeError:
@@ -65,15 +79,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 await realtime.subscribe_draft(
                     websocket,
                     message.draftId,
-                    {
-                        "publicId": current_user.publicId,
-                        "username": current_user.username,
-                        "displayName": current_user.displayName,
-                    },
+                    user_ref,
                 )
             elif message.event == "draft.unsubscribe":
                 await realtime.unsubscribe_draft(websocket, message.draftId)
             elif message.event == "draft.presence.update":
+                try:
+                    get_shared_draft(message.draftId, current_user)
+                except HTTPException:
+                    await realtime.unsubscribe_draft(websocket, message.draftId)
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
                 updated = await realtime.update_presence(websocket, message.draftId, message.activity)
                 if not updated:
                     await websocket.send_json(
