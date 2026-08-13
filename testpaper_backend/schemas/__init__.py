@@ -117,6 +117,11 @@ from testpaper_backend.schemas.sync import (
     SyncAckRequest,
     SyncAckResponse,
     SyncChange,
+    SyncConflictReason,
+    SyncConflictRecord,
+    SyncConflictResolutionRecord,
+    SyncConflictResolutionRequest,
+    SyncConflictSnapshot,
     SyncEntityType,
     SyncError,
     SyncErrorCode,
@@ -127,5 +132,6 @@ from testpaper_backend.schemas.sync import (
     SyncPullResponse,
     SyncPushRequest,
     SyncPushResponse,
+    SyncResolutionAction,
     SyncSnapshotResponse,
 )

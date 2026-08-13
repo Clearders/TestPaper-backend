@@ -12,6 +12,8 @@ SYNC_TABLES = {
     "sync_device_cursors",
     "sync_idempotency_batches",
     "sync_operation_results",
+    "sync_conflicts",
+    "sync_conflict_resolutions",
 }
 
 
@@ -62,6 +64,28 @@ def test_append_only_version_and_change_invariants_are_database_backed() -> None
     }
     assert change_indexes["ix_sync_change_log_pull"] == ("ownerId", "scope", "sequence")
     assert change_indexes["ix_sync_change_log_compaction"] == ("ownerId", "createdAt", "sequence")
+
+
+def test_conflicts_preserve_three_way_snapshots_and_resolution_audit_links() -> None:
+    conflict = Base.metadata.tables["sync_conflicts"]
+    resolution = Base.metadata.tables["sync_conflict_resolutions"]
+
+    assert {"baseSnapshot", "localSnapshot", "cloudSnapshot", "origin", "reason"} <= set(conflict.columns.keys())
+    assert {
+        "uq_sync_conflicts_owner_public_id",
+        "uq_sync_conflicts_id_owner",
+    } <= constraint_names("sync_conflicts", UniqueConstraint)
+    assert {
+        "uq_sync_conflict_resolutions_owner_operation",
+        "uq_sync_conflict_resolutions_single_undo",
+    } <= constraint_names("sync_conflict_resolutions", UniqueConstraint)
+    checks = constraint_names("sync_conflict_resolutions", CheckConstraint)
+    assert {
+        "ck_sync_conflict_resolutions_action",
+        "ck_sync_conflict_resolutions_copy_link",
+        "ck_sync_conflict_resolutions_undo_link",
+    } <= checks
+    assert {"acceptedVersionId", "resultSnapshot", "undoesResolutionId", "resolvedAt"} <= set(resolution.columns.keys())
 
 
 def test_cursor_is_tenant_scoped_and_bound_to_a_stream_epoch() -> None:

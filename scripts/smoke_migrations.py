@@ -262,6 +262,79 @@ def exercise_sync_push(test_engine) -> int:
     return user.id
 
 
+def exercise_conflict_model(test_engine, owner_id: int) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    snapshot = json.dumps(
+        {
+            "schemaVersion": 1,
+            "version": 4,
+            "contentHash": "a" * 64,
+            "mutationKind": "update",
+            "tombstone": False,
+            "payload": {"text": "candidate"},
+            "deviceId": "migration-smoke",
+            "modifiedAt": "2026-08-13T00:00:00Z",
+        },
+        separators=(",", ":"),
+    )
+    with test_engine.begin() as connection:
+        entity_id = connection.scalar(
+            text('SELECT id FROM sync_entities WHERE "ownerId" = :owner_id AND "entityType" = \'question\''),
+            {"owner_id": owner_id},
+        )
+        version_id = connection.scalar(
+            text('SELECT id FROM sync_entity_versions WHERE "entityId" = :entity_id AND version = 4'),
+            {"entity_id": entity_id},
+        )
+        assert entity_id is not None and version_id is not None
+        conflict_id = connection.scalar(
+            text(
+                'INSERT INTO sync_conflicts ("publicId", "ownerId", "entityId", "entityType", origin, reason, '
+                '"baseSnapshot", "localSnapshot", "cloudSnapshot", "detectedAt") VALUES '
+                "(:public_id, :owner_id, :entity_id, 'question', 'personalSync', 'divergentContent', "
+                "CAST(:snapshot AS jsonb), CAST(:snapshot AS jsonb), CAST(:snapshot AS jsonb), clock_timestamp()) RETURNING id"
+            ),
+            {
+                "public_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "owner_id": owner_id,
+                "entity_id": entity_id,
+                "snapshot": snapshot,
+            },
+        )
+        connection.execute(
+            text(
+                'INSERT INTO sync_conflict_resolutions ("publicId", "conflictId", "ownerId", "operationId", action, '
+                '"actorDeviceId", "acceptedVersionId", "resultSnapshot", "resolvedAt") VALUES '
+                "(:public_id, :conflict_id, :owner_id, :operation_id, 'manualMerge', 'migration-smoke', "
+                ":version_id, CAST(:snapshot AS jsonb), clock_timestamp())"
+            ),
+            {
+                "public_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                "conflict_id": conflict_id,
+                "owner_id": owner_id,
+                "operation_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                "version_id": version_id,
+                "snapshot": snapshot,
+            },
+        )
+
+    immutable_attempts = [
+        "UPDATE sync_conflicts SET reason = 'renameDivergence' WHERE \"publicId\" = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'",
+        "DELETE FROM sync_conflict_resolutions WHERE \"publicId\" = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'",
+        f'UPDATE sync_entity_versions SET "deviceId" = \'rewritten\' WHERE "entityId" = {entity_id} AND version = 4',
+        'DELETE FROM sync_change_log WHERE "entityVersionId" = ' + str(version_id),
+    ]
+    for statement in immutable_attempts:
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text(statement))
+        except DBAPIError as error:
+            assert "append-only" in str(error.orig)
+        else:
+            raise AssertionError("conflict audit history was mutable")
+
+
 def exercise_attachment_model(test_engine, owner_id: int) -> None:
     from sqlalchemy.exc import IntegrityError
 
@@ -767,6 +840,8 @@ def main() -> None:
             "question_revisions",
             "questions",
             "sync_change_log",
+            "sync_conflict_resolutions",
+            "sync_conflicts",
             "sync_device_cursors",
             "sync_entities",
             "sync_entity_versions",
@@ -806,6 +881,7 @@ def main() -> None:
             assert "uq_sync_batches_owner_device_key" in replay_plan, replay_plan
 
         owner_id = exercise_sync_push(test_engine)
+        exercise_conflict_model(test_engine, owner_id)
         exercise_attachment_model(test_engine, owner_id)
         exercise_attachment_transfer(test_engine, owner_id)
 
