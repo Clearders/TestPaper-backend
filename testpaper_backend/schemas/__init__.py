@@ -109,3 +109,14 @@ from testpaper_backend.schemas.realtime import (
     serialize_server_message,
     validate_client_message,
 )
+from testpaper_backend.schemas.sync import (
+    SyncEntityType,
+    SyncError,
+    SyncErrorCode,
+    SyncMutation,
+    SyncMutationKind,
+    SyncOperationResult,
+    SyncOperationStatus,
+    SyncPushRequest,
+    SyncPushResponse,
+)

@@ -32,6 +32,20 @@ def test_contract_declares_cookie_csrf_and_bearer_boundaries() -> None:
         {"cookieAuth": [], "csrfToken": []},
         {"bearerAuth": []},
     ]
+    assert contract["paths"]["/api/v1/sync/push"]["post"]["security"] == [{"bearerAuth": []}]
+
+
+def test_sync_push_publishes_contract_1_2_and_stable_error_responses() -> None:
+    contract = app.openapi()
+    operation = contract["paths"]["/api/v1/sync/push"]["post"]
+
+    assert contract["info"]["version"] == "1.2.0"
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/SyncPushRequest"}
+    assert {"409", "413", "426"} <= set(operation["responses"])
+    for status_code in ("409", "413", "426"):
+        assert operation["responses"][status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorEnvelope"
+        }
 
 
 def test_binary_downloads_do_not_claim_to_return_json() -> None:

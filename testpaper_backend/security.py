@@ -113,6 +113,20 @@ def get_current_user(request: Request) -> UserEntity:
 CurrentUserDependency = Depends(get_current_user)
 
 
+def get_current_sync_device(request: Request, current_user: UserEntity = CurrentUserDependency) -> str:
+    token = get_request_token(request)
+    with SessionLocal() as session:
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        if (
+            token_row is None
+            or token_row.user_id != current_user.id
+            or token_row.token_type != TokenType.access.value
+            or not token_row.device_id
+        ):
+            raise auth_error("SYNC_DEVICE_REQUIRED", "Sync requires a device-bound native access token")
+        return token_row.device_id
+
+
 def require_permission(permission: Permission):
     def dependency(current_user: UserEntity = CurrentUserDependency) -> UserEntity:
         if not has_permission(current_user, permission):
