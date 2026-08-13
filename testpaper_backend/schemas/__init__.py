@@ -110,6 +110,10 @@ from testpaper_backend.schemas.realtime import (
     validate_client_message,
 )
 from testpaper_backend.schemas.sync import (
+    AttachmentChunkReceipt,
+    AttachmentUploadCompleteRequest,
+    AttachmentUploadInitiateRequest,
+    AttachmentUploadStatus,
     SyncAckRequest,
     SyncAckResponse,
     SyncChange,

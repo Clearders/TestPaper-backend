@@ -116,6 +116,10 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
             if path == "/api/v1/sync/push":
                 responses.setdefault("409", _error_response("The idempotency key or entity base version conflicts."))
                 responses.setdefault("413", _error_response("The sync batch exceeds the operation limit."))
+            if path.startswith("/api/v1/sync/attachments/"):
+                responses.setdefault("409", _error_response("The upload state, digest, or attachment version conflicts."))
+            if "/chunks/" in path:
+                responses.setdefault("413", _error_response("The attachment chunk exceeds the size limit."))
             if path.startswith("/api/v1/drafts/") and method == "patch":
                 responses.setdefault("409", _error_response("The draft revision conflicts with the current server revision."))
             if path.startswith("/api/v1/banks/") and method == "post" and path.endswith("/items"):

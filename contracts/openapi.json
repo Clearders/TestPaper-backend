@@ -1,6 +1,206 @@
 {
   "components": {
     "schemas": {
+      "AttachmentChunkReceipt": {
+        "properties": {
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "missingChunks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missingchunks",
+            "type": "array"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          },
+          "uploadId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Uploadid",
+            "type": "string"
+          },
+          "uploadedBytes": {
+            "title": "Uploadedbytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "uploadId",
+          "ordinal",
+          "duplicate",
+          "uploadedBytes",
+          "missingChunks"
+        ],
+        "title": "AttachmentChunkReceipt",
+        "type": "object"
+      },
+      "AttachmentUploadCompleteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion"
+        ],
+        "title": "AttachmentUploadCompleteRequest",
+        "type": "object"
+      },
+      "AttachmentUploadInitiateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "attachmentId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Attachmentid",
+            "type": "string"
+          },
+          "byteSize": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 104857600.0,
+            "title": "Bytesize",
+            "type": "integer"
+          },
+          "chunkSize": {
+            "default": 1048576,
+            "maximum": 8388608.0,
+            "minimum": 262144.0,
+            "title": "Chunksize",
+            "type": "integer"
+          },
+          "contentHash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Contenthash",
+            "type": "string"
+          },
+          "contentType": {
+            "maxLength": 255,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$",
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "fileName": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f/\\\\]+$",
+            "title": "Filename",
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotencykey",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          },
+          "targetEntityId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Targetentityid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "idempotencyKey",
+          "attachmentId",
+          "targetEntityId",
+          "contentHash",
+          "byteSize",
+          "fileName",
+          "contentType"
+        ],
+        "title": "AttachmentUploadInitiateRequest",
+        "type": "object"
+      },
+      "AttachmentUploadStatus": {
+        "properties": {
+          "attachmentId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Attachmentid",
+            "type": "string"
+          },
+          "byteSize": {
+            "title": "Bytesize",
+            "type": "integer"
+          },
+          "chunkSize": {
+            "title": "Chunksize",
+            "type": "integer"
+          },
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "contentHash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Contenthash",
+            "type": "string"
+          },
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "missingChunks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Missingchunks",
+            "type": "array"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          },
+          "totalChunks": {
+            "title": "Totalchunks",
+            "type": "integer"
+          },
+          "uploadId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Uploadid",
+            "type": "string"
+          },
+          "uploadedBytes": {
+            "title": "Uploadedbytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "uploadId",
+          "attachmentId",
+          "deduplicated",
+          "completed",
+          "chunkSize",
+          "totalChunks",
+          "uploadedBytes",
+          "missingChunks",
+          "expiresAt",
+          "contentHash",
+          "byteSize"
+        ],
+        "title": "AttachmentUploadStatus",
+        "type": "object"
+      },
       "AuthConnectedEvent": {
         "properties": {
           "event": {
@@ -869,6 +1069,50 @@
           "displayName"
         ],
         "title": "DraftUserRef",
+        "type": "object"
+      },
+      "Envelope_AttachmentChunkReceipt_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AttachmentChunkReceipt"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[AttachmentChunkReceipt]",
+        "type": "object"
+      },
+      "Envelope_AttachmentUploadStatus_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AttachmentUploadStatus"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[AttachmentUploadStatus]",
         "type": "object"
       },
       "Envelope_AuthSession_": {
@@ -4769,6 +5013,7 @@
           "SYNC_ENTITY_SCHEMA_UNSUPPORTED",
           "SYNC_UPLOAD_EXPIRED",
           "SYNC_UPLOAD_CHUNK_MISMATCH",
+          "SYNC_UPLOAD_INCOMPLETE",
           "SYNC_ATTACHMENT_HASH_MISMATCH"
         ],
         "title": "SyncErrorCode",
@@ -12852,6 +13097,728 @@
           }
         ],
         "summary": "Ack Sync Cursor",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/attachments/uploads": {
+      "post": {
+        "operationId": "initiate_sync_attachment_upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentUploadInitiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_AttachmentUploadStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The upload state, digest, or attachment version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The write rate limit was exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Initiate Sync Attachment Upload",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/attachments/uploads/{upload_id}": {
+      "get": {
+        "operationId": "get_sync_attachment_upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_AttachmentUploadStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The upload state, digest, or attachment version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get Sync Attachment Upload",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/attachments/uploads/{upload_id}/chunks/{ordinal}": {
+      "put": {
+        "operationId": "put_sync_attachment_chunk",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ordinal",
+            "required": true,
+            "schema": {
+              "title": "Ordinal",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Chunk-SHA256",
+            "required": true,
+            "schema": {
+              "title": "X-Chunk-Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "title": "Data",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_AttachmentChunkReceipt_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The upload state, digest, or attachment version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The attachment chunk exceeds the size limit."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The write rate limit was exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put Sync Attachment Chunk",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/attachments/uploads/{upload_id}/complete": {
+      "post": {
+        "operationId": "complete_sync_attachment_upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentUploadCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_AttachmentUploadStatus_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The upload state, digest, or attachment version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The write rate limit was exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Complete Sync Attachment Upload",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/attachments/{attachment_id}/content": {
+      "get": {
+        "operationId": "download_sync_attachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified attachment bytes.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-SHA256": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested resource was not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The upload state, digest, or attachment version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Download Sync Attachment",
         "tags": [
           "sync"
         ]

@@ -356,5 +356,6 @@ def test_public_push_enums_match_the_pinned_sync_v1_contract() -> None:
         "SYNC_ENTITY_SCHEMA_UNSUPPORTED",
         "SYNC_UPLOAD_EXPIRED",
         "SYNC_UPLOAD_CHUNK_MISMATCH",
+        "SYNC_UPLOAD_INCOMPLETE",
         "SYNC_ATTACHMENT_HASH_MISMATCH",
     }

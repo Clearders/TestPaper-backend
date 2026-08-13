@@ -55,6 +55,7 @@ class SyncErrorCode(StrEnum):
     entity_schema_unsupported = "SYNC_ENTITY_SCHEMA_UNSUPPORTED"
     upload_expired = "SYNC_UPLOAD_EXPIRED"
     upload_chunk_mismatch = "SYNC_UPLOAD_CHUNK_MISMATCH"
+    upload_incomplete = "SYNC_UPLOAD_INCOMPLETE"
     attachment_hash_mismatch = "SYNC_ATTACHMENT_HASH_MISMATCH"
 
 
@@ -175,3 +176,51 @@ class SyncSnapshotResponse(BaseModel):
     nextCursor: str = Field(min_length=1)
     hasMore: bool
     resumeCursor: str = Field(min_length=1)
+
+
+class AttachmentUploadInitiateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: int
+    idempotencyKey: str = Field(min_length=1, max_length=128)
+    attachmentId: StableId
+    targetEntityId: StableId
+    contentHash: ContentHash
+    byteSize: int = Field(gt=0, le=100 * 1024 * 1024)
+    chunkSize: int = Field(default=1024 * 1024, ge=256 * 1024, le=8 * 1024 * 1024)
+    fileName: str = Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f\x7f/\\]+$")
+    contentType: str = Field(
+        min_length=3,
+        max_length=255,
+        pattern=r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$",
+    )
+
+
+class AttachmentUploadCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: int
+
+
+class AttachmentUploadStatus(BaseModel):
+    protocolVersion: int
+    uploadId: StableId
+    attachmentId: StableId
+    deduplicated: bool
+    completed: bool
+    chunkSize: int
+    totalChunks: int
+    uploadedBytes: int
+    missingChunks: list[int]
+    expiresAt: datetime
+    contentHash: ContentHash
+    byteSize: int
+
+
+class AttachmentChunkReceipt(BaseModel):
+    protocolVersion: int
+    uploadId: StableId
+    ordinal: int
+    duplicate: bool
+    uploadedBytes: int
+    missingChunks: list[int]
