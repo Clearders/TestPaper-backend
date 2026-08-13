@@ -335,9 +335,11 @@ Validate migration upgrade/downgrade structure without a running database:
 python scripts/simulate_migrations.py
 ```
 
-Current migration history has 15 versions, from initial users/questions/papers/auth-token tables through public IDs, search indexes, revisions/corrections, profile fields, paper ownership, disabling unchanged legacy demo accounts, and the July 2 shared paper draft tables.
+Current migration history has 21 versions, from the initial schema through collaborative drafts and banks, native authentication, Sync v1 persistence, and the content-addressed attachment model.
 
 The July 2 collaborative draft release adds `paper_drafts`, `paper_draft_collaborators`, and `paper_draft_comments` in revision `20260702_0015`. Run `alembic upgrade head` before deploying frontend code that calls `/api/v1/drafts`.
+
+Revision `20260813_0021` adds deduplicated attachment blobs, ACL-inheriting references, resumable upload state, and database-backed reference-count/retention invariants. See [docs/attachment-storage.md](docs/attachment-storage.md) for the authorization and garbage-collection boundary.
 
 Fresh databases do not receive default users. Run `python scripts/bootstrap_admin.py` after migrating to create the first administrator. The script can also read `TESTPAPER_ADMIN_USERNAME`, `TESTPAPER_ADMIN_DISPLAY_NAME`, and `TESTPAPER_ADMIN_PASSWORD` for non-interactive provisioning.
 

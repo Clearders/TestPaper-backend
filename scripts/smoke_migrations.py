@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 from testpaper_backend.config import get_database_url
 
 
-def exercise_sync_push(test_engine) -> None:
+def exercise_sync_push(test_engine) -> int:
     from fastapi import HTTPException
 
     from testpaper_backend.db import SyncChangeLogRow, SyncDeviceCursorRow, SyncEntityVersionRow, SyncStreamRow, UserRow
@@ -256,6 +256,182 @@ def exercise_sync_push(test_engine) -> None:
         assert session.query(SyncChangeLogRow).count() == 4
         cursor_row = session.get(SyncDeviceCursorRow, (user.id, "migration-smoke", "personal"))
         assert cursor_row is not None and cursor_row.cursor_sequence == 4
+    return user.id
+
+
+def exercise_attachment_model(test_engine, owner_id: int) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    digest = "a" * 64
+    now_sql = "clock_timestamp()"
+    with test_engine.begin() as connection:
+        target_id = connection.scalar(
+            text('SELECT id FROM sync_entities WHERE "ownerId" = :owner_id AND "entityType" = \'question\''),
+            {"owner_id": owner_id},
+        )
+        assert target_id is not None
+        attachment_entity_id = connection.scalar(
+            text(
+                'INSERT INTO sync_entities ("ownerId", "entityType", "publicId", scope, "schemaVersion", version, '
+                '"contentHash", payload, tombstone, "createdAt", "updatedAt", "deletedAt") '
+                f"VALUES (:owner_id, 'attachment', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'personal', 1, 1, "
+                f":entity_hash, '{{}}'::jsonb, false, {now_sql}, {now_sql}, NULL) RETURNING id"
+            ),
+            {"owner_id": owner_id, "entity_hash": "c" * 64},
+        )
+        tampered_attachment_entity_id = connection.scalar(
+            text(
+                'INSERT INTO sync_entities ("ownerId", "entityType", "publicId", scope, "schemaVersion", version, '
+                '"contentHash", payload, tombstone, "createdAt", "updatedAt", "deletedAt") '
+                f"VALUES (:owner_id, 'attachment', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'personal', 1, 1, "
+                f":entity_hash, '{{}}'::jsonb, false, {now_sql}, {now_sql}, NULL) RETURNING id"
+            ),
+            {"owner_id": owner_id, "entity_hash": "d" * 64},
+        )
+        blob_id = connection.scalar(
+            text(
+                "INSERT INTO attachment_blobs "
+                '(sha256, "byteSize", "contentType", "storageKey", status, "referenceCount", '
+                '"verifiedAt", "gcEligibleAt", "createdAt", "updatedAt") '
+                f"VALUES (:digest, 4, 'image/png', 'blobs/aa/test', 'available', 0, {now_sql}, NULL, {now_sql}, {now_sql}) "
+                "RETURNING id"
+            ),
+            {"digest": digest},
+        )
+        reference_id = connection.scalar(
+            text(
+                "INSERT INTO attachment_references "
+                '("publicId", "ownerId", scope, "attachmentEntityId", "targetEntityId", "blobId", "contentHash", "byteSize", '
+                '"fileName", "contentType", availability, tombstone, "createdAt", "updatedAt", "deletedAt", "retentionUntil") '
+                f"VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', :owner_id, 'personal', "
+                ":attachment_entity_id, :target_id, :blob_id, :digest, 4, "
+                f"'diagram.png', 'image/png', 'available', false, {now_sql}, {now_sql}, NULL, NULL) RETURNING id"
+            ),
+            {
+                "owner_id": owner_id,
+                "attachment_entity_id": attachment_entity_id,
+                "target_id": target_id,
+                "blob_id": blob_id,
+                "digest": digest,
+            },
+        )
+        assert (
+            connection.scalar(
+                text('SELECT "referenceCount" FROM attachment_blobs WHERE id = :blob_id'),
+                {"blob_id": blob_id},
+            )
+            == 1
+        )
+
+        try:
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO attachment_blobs "
+                        '(sha256, "byteSize", "storageKey", status, "referenceCount", "verifiedAt", '
+                        f'"gcEligibleAt", "createdAt", "updatedAt") VALUES (:digest, 4, \'blobs/aa/duplicate\', '
+                        f"'available', 0, {now_sql}, NULL, {now_sql}, {now_sql})"
+                    ),
+                    {"digest": digest},
+                )
+        except IntegrityError:
+            pass
+        else:
+            raise AssertionError("duplicate attachment digest unexpectedly created a second blob")
+
+        try:
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO attachment_references "
+                        '("publicId", "ownerId", scope, "attachmentEntityId", "targetEntityId", "blobId", "contentHash", "byteSize", '
+                        '"fileName", "contentType", availability, tombstone, "createdAt", "updatedAt", "deletedAt", "retentionUntil") '
+                        f"VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd', :owner_id, 'personal', "
+                        ":attachment_entity_id, :target_id, :blob_id, :wrong, 4, "
+                        f"'tampered.png', 'image/png', 'available', false, {now_sql}, {now_sql}, NULL, NULL)"
+                    ),
+                    {
+                        "owner_id": owner_id,
+                        "attachment_entity_id": tampered_attachment_entity_id,
+                        "target_id": target_id,
+                        "blob_id": blob_id,
+                        "wrong": "b" * 64,
+                    },
+                )
+        except IntegrityError:
+            pass
+        else:
+            raise AssertionError("reference accepted bytes whose digest did not match its metadata")
+
+        try:
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO attachment_references "
+                        '("publicId", "ownerId", scope, "attachmentEntityId", "targetEntityId", "blobId", "contentHash", "byteSize", '
+                        '"fileName", "contentType", availability, tombstone, "createdAt", "updatedAt", "deletedAt", "retentionUntil") '
+                        f"VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff', :owner_id, 'personal', "
+                        ":attachment_entity_id, :target_id, :blob_id, :digest, 4, "
+                        f"'wrong-id.png', 'image/png', 'available', false, {now_sql}, {now_sql}, NULL, NULL)"
+                    ),
+                    {
+                        "owner_id": owner_id,
+                        "attachment_entity_id": attachment_entity_id,
+                        "target_id": target_id,
+                        "blob_id": blob_id,
+                        "digest": digest,
+                    },
+                )
+        except IntegrityError:
+            pass
+        else:
+            raise AssertionError("attachment reference diverged from its Sync metadata identity")
+
+        other_owner_id = connection.scalar(
+            text(
+                'INSERT INTO users ("publicId", username, "displayName", "passwordHash", role, "isActive", created_at, updated_at) '
+                f"VALUES ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'attachment-intruder', 'Attachment Intruder', "
+                f"'not-used', 'teacher', true, {now_sql}, {now_sql}) RETURNING id"
+            )
+        )
+        try:
+            with connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO attachment_references "
+                        '("publicId", "ownerId", scope, "attachmentEntityId", "targetEntityId", "blobId", "contentHash", "byteSize", '
+                        '"fileName", "contentType", availability, tombstone, "createdAt", "updatedAt", "deletedAt", "retentionUntil") '
+                        f"VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', :other_owner_id, 'personal', "
+                        ":attachment_entity_id, :target_id, :blob_id, :digest, 4, "
+                        f"'stolen.png', 'image/png', 'available', false, {now_sql}, {now_sql}, NULL, NULL)"
+                    ),
+                    {
+                        "other_owner_id": other_owner_id,
+                        "attachment_entity_id": attachment_entity_id,
+                        "target_id": target_id,
+                        "blob_id": blob_id,
+                        "digest": digest,
+                    },
+                )
+        except IntegrityError:
+            pass
+        else:
+            raise AssertionError("attachment reference widened the target entity owner ACL")
+
+        retention_until = connection.scalar(text("SELECT clock_timestamp() + interval '30 days'"))
+        connection.execute(
+            text(
+                'UPDATE attachment_references SET tombstone = true, "deletedAt" = clock_timestamp(), '
+                '"retentionUntil" = :retention_until, "updatedAt" = clock_timestamp() WHERE id = :reference_id'
+            ),
+            {"retention_until": retention_until, "reference_id": reference_id},
+        )
+        reference_count, gc_eligible_at = connection.execute(
+            text('SELECT "referenceCount", "gcEligibleAt" FROM attachment_blobs WHERE id = :blob_id'),
+            {"blob_id": blob_id},
+        ).one()
+        assert reference_count == 0
+        assert gc_eligible_at >= retention_until
 
 
 def parse_args() -> argparse.Namespace:
@@ -300,6 +476,10 @@ def main() -> None:
         test_engine = create_engine(test_url)
         expected_tables = {
             "alembic_version",
+            "attachment_blobs",
+            "attachment_references",
+            "attachment_upload_chunks",
+            "attachment_upload_sessions",
             "auth_tokens",
             "paper_questions",
             "papers",
@@ -348,7 +528,8 @@ def main() -> None:
             )
             assert "uq_sync_batches_owner_device_key" in replay_plan, replay_plan
 
-        exercise_sync_push(test_engine)
+        owner_id = exercise_sync_push(test_engine)
+        exercise_attachment_model(test_engine, owner_id)
 
         test_engine.dispose()
         test_engine = None
