@@ -26,6 +26,7 @@ def checks(*, with_postgres: bool) -> list[tuple[str, list[str], dict[str, str] 
         ("Ruff lint", [sys.executable, "-m", "ruff", "check", "."], None),
         ("OpenAPI drift", [sys.executable, "scripts/export_openapi.py", "--check"], None),
         ("Sync v1 contract", [sys.executable, "scripts/check_sync_contract.py"], None),
+        ("Sync assurance evidence", [sys.executable, "scripts/check_sync_assurance.py"], None),
     ]
     items.extend(
         (

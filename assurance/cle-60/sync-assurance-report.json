@@ -1,0 +1,63 @@
+{
+  "reportVersion": "cle-60-sync-assurance/v1",
+  "frozenForIssue": "CLE-60",
+  "sourceIssue": "CLE-98",
+  "sloContract": "contracts/sync-slo-v1.json",
+  "qualification": {
+    "runtimes": [
+      "python",
+      "rust"
+    ],
+    "sequencesPerRuntime": 10000,
+    "stepsPerSequence": 24,
+    "silentDataLossCount": 0,
+    "duplicateSemanticVersionCount": 0,
+    "unconvergedSequenceCount": 0,
+    "reproductionBaseSeed": 1000003,
+    "modelContract": "contracts/sync-fault-model-v1.json"
+  },
+  "modelQualificationMetrics": {
+    "randomizedConflictRatio": 0.524224480654012,
+    "maximumModelQueueBacklogOperations": 9
+  },
+  "operationalQualification": {
+    "status": "pendingStagingCanary",
+    "requiredCommand": "python scripts/check_sync_assurance.py --release-from-environment",
+    "scope": "staging canary must satisfy the rolling operational window before widening"
+  },
+  "evidence": [
+    "contracts/sync-v1.schema.json",
+    "contracts/sync-consistency-v1.lock.json",
+    "contracts/sync-fault-model-v1.json",
+    "contracts/sync-slo-v1.json",
+    "docs/sync-persistence-cle63.md",
+    "docs/attachment-storage.md",
+    "tests/test_sync_consistency_scenarios.py",
+    "tests/test_sync_fault_model.py",
+    "scripts/smoke_migrations.py"
+  ],
+  "externalEvidence": [
+    "https://github.com/Clearders/TestPapers/blob/main/docs/adr/0003-sync-v1-wire-protocol.md",
+    "https://github.com/Clearders/TestPapers/blob/main/docs/adr/0004-sync-v1-cursors-idempotency-and-recovery.md"
+  ],
+  "rollback": {
+    "action": "Disable account and entity sync feature flags and stop sync traffic.",
+    "preserve": [
+      "additive schema",
+      "versions",
+      "tombstones",
+      "conflicts",
+      "pending client operations"
+    ]
+  },
+  "residualRisks": [
+    "Operational latency and backlog require staging and canary observations; qualification timings are not production SLO evidence.",
+    "The conflict-ratio threshold is a widening guardrail because explicit conflicts preserve all candidates.",
+    "Filesystem blob storage remains the M4 backend; S3 migration is deferred to CLE-41/M6."
+  ],
+  "dataHandling": {
+    "containsBusinessPayload": false,
+    "containsCredentials": false,
+    "containsStableEntityOrDeviceIdentifiers": false
+  }
+}
