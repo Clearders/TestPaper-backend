@@ -1,0 +1,57 @@
+{
+  "contractVersion": "sync-slo/v1",
+  "sourceIssue": "CLE-98",
+  "window": {
+    "operationalRollingMinutes": 15,
+    "qualificationSequencesPerRuntime": 10000
+  },
+  "metrics": {
+    "syncCycleLatencyP95Ms": {
+      "maximum": 2000,
+      "releaseBlocking": true
+    },
+    "syncFailureRatio": {
+      "maximum": 0.01,
+      "releaseBlocking": true
+    },
+    "syncConflictRatio": {
+      "maximum": 0.6,
+      "releaseBlocking": false,
+      "note": "Conflicts preserve data and are product-visible; exceeding this threshold blocks widening but not rollback."
+    },
+    "syncQueueBacklogOperations": {
+      "maximum": 1000,
+      "releaseBlocking": true
+    },
+    "silentDataLossCount": {
+      "maximum": 0,
+      "releaseBlocking": true
+    },
+    "duplicateSemanticVersionCount": {
+      "maximum": 0,
+      "releaseBlocking": true
+    },
+    "unconvergedSequenceCount": {
+      "maximum": 0,
+      "releaseBlocking": true
+    }
+  },
+  "telemetryAllowlist": [
+    "operation",
+    "latencyMs",
+    "success",
+    "mutationCount",
+    "conflictCount",
+    "queueBacklog"
+  ],
+  "telemetryProhibited": [
+    "payload",
+    "snapshot",
+    "token",
+    "authorization",
+    "entityId",
+    "operationId",
+    "deviceId",
+    "contentHash"
+  ]
+}

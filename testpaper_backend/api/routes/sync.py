@@ -45,6 +45,7 @@ from testpaper_backend.services.sync_conflicts import (
     resolve_conflict,
     restore_version,
 )
+from testpaper_backend.services.sync_metrics import SyncObservation, observe_sync_call
 from testpaper_backend.services.sync_push import push_mutations
 from testpaper_backend.services.sync_read import acknowledge_cursor, pull_changes, snapshot_entities
 
@@ -225,8 +226,13 @@ def pull_sync_changes(
     cursor: str | None = Query(default=None),
     page_size: int = Query(default=100, alias="pageSize", ge=1, le=500),
 ):
+    result = observe_sync_call(
+        "pull",
+        lambda: pull_changes(user=current_user, device_id=device_id, cursor=cursor, page_size=page_size),
+        lambda response: SyncObservation(queue_backlog=len(response.changes) + int(response.hasMore)),
+    )
     return envelope(
-        pull_changes(user=current_user, device_id=device_id, cursor=cursor, page_size=page_size),
+        result,
         request,
     )
 
@@ -239,7 +245,8 @@ def ack_sync_cursor(
     device_id: CurrentSyncDeviceDep,
     _: RateLimitWriteDep,
 ):
-    return envelope(acknowledge_cursor(payload, user=current_user, device_id=device_id), request)
+    result = observe_sync_call("ack", lambda: acknowledge_cursor(payload, user=current_user, device_id=device_id))
+    return envelope(result, request)
 
 
 @router.get("/snapshot", response_model=Envelope[SyncSnapshotResponse])
@@ -250,8 +257,13 @@ def get_sync_snapshot(
     cursor: str | None = Query(default=None),
     page_size: int = Query(default=100, alias="pageSize", ge=1, le=500),
 ):
+    result = observe_sync_call(
+        "snapshot",
+        lambda: snapshot_entities(user=current_user, device_id=device_id, cursor=cursor, page_size=page_size),
+        lambda response: SyncObservation(queue_backlog=len(response.entries) + int(response.hasMore)),
+    )
     return envelope(
-        snapshot_entities(user=current_user, device_id=device_id, cursor=cursor, page_size=page_size),
+        result,
         request,
     )
 
@@ -264,10 +276,17 @@ def push_sync_mutations(
     device_id: CurrentSyncDeviceDep,
     _: RateLimitWriteDep,
 ):
-    response = push_mutations(
-        payload,
-        user=current_user,
-        authenticated_device_id=device_id,
-        request_id=request.state.request_id,
+    response = observe_sync_call(
+        "push",
+        lambda: push_mutations(
+            payload,
+            user=current_user,
+            authenticated_device_id=device_id,
+            request_id=request.state.request_id,
+        ),
+        lambda result: SyncObservation(
+            mutation_count=len(result.results),
+            conflict_count=sum(item.status.value == "conflict" for item in result.results),
+        ),
     )
     return envelope(response, request)
