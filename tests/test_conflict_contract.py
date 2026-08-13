@@ -68,7 +68,7 @@ def test_identical_hash_is_a_noop_not_a_conflict() -> None:
     )
 
 
-def test_personal_conflict_preserves_three_way_state_and_excludes_realtime_entities() -> None:
+def test_personal_conflict_preserves_three_way_state_for_every_sync_entity() -> None:
     baseline = _snapshot(SyncMutationKind.update, "a" * 64, version=1)
     record = SyncConflictRecord(
         protocolVersion=1,
@@ -84,8 +84,8 @@ def test_personal_conflict_preserves_three_way_state_and_excludes_realtime_entit
     )
     assert record.base == baseline and record.origin == "personalSync"
 
-    with pytest.raises(ValidationError, match="limited to question, paper, and draft"):
-        SyncConflictRecord(**{**record.model_dump(), "entityType": "comment"})
+    comment = SyncConflictRecord(**{**record.model_dump(), "entityType": "comment"})
+    assert comment.entityType == SyncEntityType.comment
 
 
 def test_resolution_action_requires_auditable_action_specific_links() -> None:

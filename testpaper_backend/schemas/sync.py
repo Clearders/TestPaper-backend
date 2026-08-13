@@ -227,9 +227,7 @@ class SyncConflictRecord(BaseModel):
     detectedAt: datetime
 
     @model_validator(mode="after")
-    def validate_supported_entity_and_baseline(self):
-        if self.entityType not in {SyncEntityType.question, SyncEntityType.paper, SyncEntityType.draft}:
-            raise ValueError("rich conflict records are limited to question, paper, and draft")
+    def validate_baseline(self):
         if self.reason == SyncConflictReason.concurrent_create:
             if self.base is not None:
                 raise ValueError("concurrent create must preserve an explicit null baseline")
@@ -284,6 +282,46 @@ class SyncConflictResolutionRecord(BaseModel):
         if (self.action == SyncResolutionAction.undo) != (self.undoesResolutionId is not None):
             raise ValueError("undo alone records undoesResolutionId")
         return self
+
+
+class SyncEntityVersionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entityType: SyncEntityType
+    entityId: StableId
+    version: int = Field(ge=1)
+    schemaVersion: int = Field(ge=1)
+    contentHash: ContentHash
+    mutationKind: SyncMutationKind
+    tombstone: bool
+    payload: dict[str, Any] | None
+    operationId: StableId
+    deviceId: str
+    createdAt: datetime
+
+
+class SyncVersionRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: Literal[1]
+    operationId: StableId
+    currentVersion: int = Field(ge=1)
+    currentContentHash: ContentHash
+
+
+class SyncVersionRestoreRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: Literal[1]
+    operationId: StableId
+    entityType: SyncEntityType
+    entityId: StableId
+    restoredFromVersion: int = Field(ge=1)
+    acceptedVersion: int = Field(ge=1)
+    acceptedContentHash: ContentHash
+    result: SyncEntityVersionRecord
+    actorDeviceId: str = Field(min_length=1, max_length=128)
+    restoredAt: datetime
 
 
 class AttachmentUploadInitiateRequest(BaseModel):

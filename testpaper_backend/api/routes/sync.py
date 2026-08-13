@@ -14,10 +14,17 @@ from testpaper_backend.schemas import (
     Envelope,
     SyncAckRequest,
     SyncAckResponse,
+    SyncConflictRecord,
+    SyncConflictResolutionRecord,
+    SyncConflictResolutionRequest,
+    SyncEntityType,
+    SyncEntityVersionRecord,
     SyncPullResponse,
     SyncPushRequest,
     SyncPushResponse,
     SyncSnapshotResponse,
+    SyncVersionRestoreRecord,
+    SyncVersionRestoreRequest,
 )
 from testpaper_backend.services.attachment_transfers import (
     complete_attachment_upload,
@@ -26,10 +33,66 @@ from testpaper_backend.services.attachment_transfers import (
     initiate_attachment_upload,
     upload_attachment_chunk,
 )
+from testpaper_backend.services.sync_conflicts import get_conflict, list_versions, resolve_conflict, restore_version
 from testpaper_backend.services.sync_push import push_mutations
 from testpaper_backend.services.sync_read import acknowledge_cursor, pull_changes, snapshot_entities
 
 router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
+
+
+@router.get("/conflicts/{conflict_id}", response_model=Envelope[SyncConflictRecord])
+def get_sync_conflict(request: Request, conflict_id: str, current_user: CurrentUserDep):
+    return envelope(get_conflict(conflict_id, user=current_user), request)
+
+
+@router.post("/conflicts/{conflict_id}/resolve", response_model=Envelope[SyncConflictResolutionRecord])
+def resolve_sync_conflict(
+    request: Request,
+    conflict_id: str,
+    payload: SyncConflictResolutionRequest,
+    current_user: CurrentUserDep,
+    device_id: CurrentSyncDeviceDep,
+    _: RateLimitWriteDep,
+):
+    return envelope(resolve_conflict(conflict_id, payload, user=current_user, device_id=device_id), request)
+
+
+@router.get(
+    "/entities/{entity_type}/{entity_id}/versions",
+    response_model=Envelope[list[SyncEntityVersionRecord]],
+)
+def list_sync_entity_versions(
+    request: Request,
+    entity_type: SyncEntityType,
+    entity_id: str,
+    current_user: CurrentUserDep,
+):
+    return envelope(list_versions(entity_type, entity_id, user=current_user), request)
+
+
+@router.post(
+    "/entities/{entity_type}/{entity_id}/versions/{version}/restore",
+    response_model=Envelope[SyncVersionRestoreRecord],
+)
+def restore_sync_entity_version(
+    request: Request,
+    entity_type: SyncEntityType,
+    entity_id: str,
+    version: int,
+    payload: SyncVersionRestoreRequest,
+    current_user: CurrentUserDep,
+    device_id: CurrentSyncDeviceDep,
+    _: RateLimitWriteDep,
+):
+    result = restore_version(
+        entity_type,
+        entity_id,
+        version,
+        payload,
+        user=current_user,
+        device_id=device_id,
+    )
+    return envelope(result, request)
 
 
 @router.post(

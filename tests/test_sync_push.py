@@ -154,11 +154,12 @@ def test_create_writes_projection_version_and_change_in_one_operation() -> None:
     assert projection.tombstone is False
 
 
-def test_stale_update_returns_conflict_without_writes() -> None:
+@pytest.mark.parametrize("entity_type", ["question", "comment"])
+def test_stale_update_persists_three_way_conflict_without_overwriting_entity(entity_type: str) -> None:
     current = SyncEntityRow(
         id=1,
         owner_id=7,
-        entity_type="question",
+        entity_type=entity_type,
         public_id=ENTITY_ID,
         scope="personal",
         schema_version=1,
@@ -170,10 +171,26 @@ def test_stale_update_returns_conflict_without_writes() -> None:
         updated_at=NOW,
         deleted_at=None,
     )
-    session = FakeSession([None, current])
+    base = SyncEntityVersionRow(
+        id=2,
+        entity_id=1,
+        owner_id=7,
+        version=2,
+        schema_version=1,
+        content_hash="b" * 64,
+        payload={"text": "base"},
+        tombstone=False,
+        mutation_kind="update",
+        operation_id=OPERATION_2,
+        base_version=1,
+        base_hash="c" * 64,
+        device_id="desktop-base",
+        created_at=NOW,
+    )
+    session = FakeSession([None, current, base])
     mutation = SyncMutation(
         operationId=OPERATION_1,
-        entityType="question",
+        entityType=entity_type,
         entityId=ENTITY_ID,
         kind="update",
         baseVersion=2,
@@ -187,7 +204,13 @@ def test_stale_update_returns_conflict_without_writes() -> None:
     assert result.status == SyncOperationStatus.conflict
     assert result.entityVersion == 3
     assert result.error is not None and result.error.code == "SYNC_CONFLICT"
-    assert session.added == []
+    assert result.conflictId is not None
+    assert len(session.added) == 1
+    assert session.added[0].base_snapshot["payload"] == {"text": "base"}
+    assert session.added[0].local_snapshot["payload"] == {"text": "stale"}
+    assert session.added[0].local_snapshot["version"] == 3
+    assert session.added[0].cloud_snapshot["payload"] == {"text": "current"}
+    assert current.payload == {"text": "current"} and current.version == 3
 
 
 def test_unsupported_entity_schema_is_rejected_without_writes() -> None:

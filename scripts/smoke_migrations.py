@@ -25,9 +25,18 @@ def exercise_sync_push(test_engine) -> int:
     from fastapi import HTTPException
 
     from testpaper_backend.db import SyncChangeLogRow, SyncDeviceCursorRow, SyncEntityVersionRow, SyncStreamRow, UserRow
-    from testpaper_backend.schemas import SyncAckRequest, SyncMutation, SyncOperationStatus, SyncPushRequest, UserEntity, UserRole
+    from testpaper_backend.schemas import (
+        SyncAckRequest,
+        SyncConflictResolutionRequest,
+        SyncMutation,
+        SyncOperationStatus,
+        SyncPushRequest,
+        SyncVersionRestoreRequest,
+        UserEntity,
+        UserRole,
+    )
     from testpaper_backend.security import permissions_for_role
-    from testpaper_backend.services import sync_push, sync_read
+    from testpaper_backend.services import sync_conflicts, sync_push, sync_read
     from testpaper_backend.time_utils import now_utc
 
     sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
@@ -154,7 +163,9 @@ def exercise_sync_push(test_engine) -> int:
         statuses = sorted(result.status.value for result in concurrent_results)
     assert statuses == ["applied", "conflict"]
     applied_update = next(result for result in concurrent_results if result.status == SyncOperationStatus.applied)
+    detected_conflict = next(result for result in concurrent_results if result.status == SyncOperationStatus.conflict)
     assert applied_update.entityVersion == 2 and applied_update.contentHash is not None
+    assert detected_conflict.conflictId is not None
 
     deleted = sync_push.push_mutations(
         SyncPushRequest(
@@ -259,6 +270,111 @@ def exercise_sync_push(test_engine) -> int:
         assert session.query(SyncChangeLogRow).count() == 4
         cursor_row = session.get(SyncDeviceCursorRow, (user.id, "migration-smoke", "personal"))
         assert cursor_row is not None and cursor_row.cursor_sequence == 4
+    sync_conflicts.SessionLocal = sessions
+    resolved = sync_conflicts.resolve_conflict(
+        detected_conflict.conflictId,
+        SyncConflictResolutionRequest(
+            protocolVersion=1,
+            operationId="abababab-abab-4bab-8bab-abababababab",
+            action="keepLocal",
+            currentVersion=4,
+            currentContentHash=restored.results[0].contentHash,
+        ),
+        user=user,
+        device_id="migration-smoke",
+    )
+    replayed_resolution = sync_conflicts.resolve_conflict(
+        detected_conflict.conflictId,
+        SyncConflictResolutionRequest(
+            protocolVersion=1,
+            operationId="abababab-abab-4bab-8bab-abababababab",
+            action="keepLocal",
+            currentVersion=4,
+            currentContentHash=restored.results[0].contentHash,
+        ),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert replayed_resolution == resolved and resolved.acceptedVersion == 5
+    undone = sync_conflicts.resolve_conflict(
+        detected_conflict.conflictId,
+        SyncConflictResolutionRequest(
+            protocolVersion=1,
+            operationId="acacacac-acac-4cac-8cac-acacacacacac",
+            action="undo",
+            currentVersion=5,
+            currentContentHash=resolved.acceptedContentHash,
+            undoesResolutionId=resolved.resolutionId,
+        ),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert undone.acceptedVersion == 6 and undone.undoesResolutionId == resolved.resolutionId
+    restored_history = sync_conflicts.restore_version(
+        "question",
+        entity_id,
+        1,
+        SyncVersionRestoreRequest(
+            protocolVersion=1,
+            operationId="adadadad-adad-4dad-8dad-adadadadadad",
+            currentVersion=6,
+            currentContentHash=undone.acceptedContentHash,
+        ),
+        user=user,
+        device_id="migration-smoke",
+    )
+    replayed_history = sync_conflicts.restore_version(
+        "question",
+        entity_id,
+        1,
+        SyncVersionRestoreRequest(
+            protocolVersion=1,
+            operationId="adadadad-adad-4dad-8dad-adadadadadad",
+            currentVersion=6,
+            currentContentHash=undone.acceptedContentHash,
+        ),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert restored_history == replayed_history and restored_history.acceptedVersion == 7
+    concurrent_request = SyncConflictResolutionRequest(
+        protocolVersion=1,
+        operationId="aeaeaeae-aeae-4eae-8eae-aeaeaeaeaeae",
+        action="keepLocal",
+        currentVersion=7,
+        currentContentHash=restored_history.acceptedContentHash,
+    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        concurrent = list(
+            executor.map(
+                lambda _: sync_conflicts.resolve_conflict(
+                    detected_conflict.conflictId,
+                    concurrent_request,
+                    user=user,
+                    device_id="migration-smoke",
+                ),
+                range(2),
+            )
+        )
+    assert concurrent[0] == concurrent[1] and concurrent[0].acceptedVersion == 8
+    try:
+        sync_conflicts.resolve_conflict(
+            detected_conflict.conflictId,
+            SyncConflictResolutionRequest(
+                protocolVersion=1,
+                operationId=concurrent_request.operationId,
+                action="useCloud",
+                currentVersion=concurrent_request.currentVersion,
+                currentContentHash=concurrent_request.currentContentHash,
+            ),
+            user=user,
+            device_id="migration-smoke",
+        )
+    except HTTPException as error:
+        assert error.detail["code"] == "SYNC_IDEMPOTENCY_MISMATCH"
+    else:
+        raise AssertionError("resolution operationId accepted different content")
+    assert len(sync_conflicts.list_versions("question", entity_id, user=user)) == 8
     return user.id
 
 
@@ -304,9 +420,9 @@ def exercise_conflict_model(test_engine, owner_id: int) -> None:
         )
         connection.execute(
             text(
-                'INSERT INTO sync_conflict_resolutions ("publicId", "conflictId", "ownerId", "operationId", action, '
-                '"actorDeviceId", "acceptedVersionId", "resultSnapshot", "resolvedAt") VALUES '
-                "(:public_id, :conflict_id, :owner_id, :operation_id, 'manualMerge', 'migration-smoke', "
+                'INSERT INTO sync_conflict_resolutions ("publicId", "conflictId", "ownerId", "operationId", '
+                '"requestHash", action, "actorDeviceId", "acceptedVersionId", "resultSnapshot", "resolvedAt") VALUES '
+                "(:public_id, :conflict_id, :owner_id, :operation_id, :request_hash, 'manualMerge', 'migration-smoke', "
                 ":version_id, CAST(:snapshot AS jsonb), clock_timestamp())"
             ),
             {
@@ -314,6 +430,7 @@ def exercise_conflict_model(test_engine, owner_id: int) -> None:
                 "conflict_id": conflict_id,
                 "owner_id": owner_id,
                 "operation_id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                "request_hash": "e" * 64,
                 "version_id": version_id,
                 "snapshot": snapshot,
             },
@@ -848,6 +965,7 @@ def main() -> None:
             "sync_idempotency_batches",
             "sync_operation_results",
             "sync_streams",
+            "sync_version_restores",
             "users",
         }
         with test_engine.connect() as connection:

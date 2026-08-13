@@ -534,7 +534,10 @@ class SyncConflictRow(Base):
         ),
         UniqueConstraint("id", "ownerId", name="uq_sync_conflicts_id_owner"),
         UniqueConstraint("ownerId", "publicId", name="uq_sync_conflicts_owner_public_id"),
-        CheckConstraint("\"entityType\" IN ('question', 'paper', 'draft')", name="ck_sync_conflicts_entity_type"),
+        CheckConstraint(
+            "\"entityType\" IN ('question', 'paper', 'draft', 'attachment', 'comment', 'favorite', 'setting')",
+            name="ck_sync_conflicts_entity_type",
+        ),
         CheckConstraint("\"origin\" = 'personalSync'", name="ck_sync_conflicts_origin"),
         CheckConstraint(
             "\"reason\" IN ('concurrentCreate', 'divergentContent', 'tombstoneDivergence', 'restoreDivergence', 'renameDivergence')",
@@ -565,6 +568,12 @@ class SyncConflictRow(Base):
     local_snapshot: Mapped[dict[str, Any]] = mapped_column("localSnapshot", JSONB, nullable=False)
     cloud_snapshot: Mapped[dict[str, Any]] = mapped_column("cloudSnapshot", JSONB, nullable=False)
     detected_at: Mapped[datetime] = mapped_column("detectedAt", DateTime(timezone=True), nullable=False)
+    entity: Mapped[SyncEntityRow] = relationship()
+    resolutions: Mapped[list[SyncConflictResolutionRow]] = relationship(
+        back_populates="conflict",
+        foreign_keys="SyncConflictResolutionRow.conflict_id",
+        order_by="SyncConflictResolutionRow.resolved_at",
+    )
 
 
 class SyncConflictResolutionRow(Base):
@@ -588,6 +597,7 @@ class SyncConflictResolutionRow(Base):
         UniqueConstraint("ownerId", "publicId", name="uq_sync_conflict_resolutions_owner_public_id"),
         UniqueConstraint("ownerId", "operationId", name="uq_sync_conflict_resolutions_owner_operation"),
         UniqueConstraint("undoesResolutionId", name="uq_sync_conflict_resolutions_single_undo"),
+        CheckConstraint('length("requestHash") = 64', name="ck_sync_conflict_resolutions_request_hash"),
         CheckConstraint(
             "\"action\" IN ('keepLocal', 'useCloud', 'saveCopy', 'manualMerge', 'restoreVersion', 'undo')",
             name="ck_sync_conflict_resolutions_action",
@@ -609,6 +619,7 @@ class SyncConflictResolutionRow(Base):
     conflict_id: Mapped[int] = mapped_column("conflictId", BigInteger, nullable=False)
     owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
     operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    request_hash: Mapped[str] = mapped_column("requestHash", String(64), nullable=False)
     action: Mapped[str] = mapped_column(String(24), nullable=False)
     actor_device_id: Mapped[str] = mapped_column("actorDeviceId", String(128), nullable=False)
     accepted_version_id: Mapped[int] = mapped_column(
@@ -620,6 +631,49 @@ class SyncConflictResolutionRow(Base):
     new_entity_public_id: Mapped[str | None] = mapped_column("newEntityPublicId", String(36), nullable=True)
     undoes_resolution_id: Mapped[int | None] = mapped_column("undoesResolutionId", BigInteger, nullable=True)
     resolved_at: Mapped[datetime] = mapped_column("resolvedAt", DateTime(timezone=True), nullable=False)
+    conflict: Mapped[SyncConflictRow] = relationship(
+        back_populates="resolutions",
+        foreign_keys=[conflict_id],
+    )
+    accepted_version: Mapped[SyncEntityVersionRow] = relationship(foreign_keys=[accepted_version_id])
+    undoes_resolution: Mapped[SyncConflictResolutionRow | None] = relationship(
+        remote_side=[id],
+        foreign_keys=[undoes_resolution_id],
+    )
+
+
+class SyncVersionRestoreRow(Base):
+    """Append-only audit record for an explicit history restoration."""
+
+    __tablename__ = "sync_version_restores"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["entityId", "ownerId"],
+            ["sync_entities.id", "sync_entities.ownerId"],
+            ondelete="RESTRICT",
+            name="fk_sync_version_restores_entity_owner",
+        ),
+        UniqueConstraint("ownerId", "operationId", name="uq_sync_version_restores_owner_operation"),
+        CheckConstraint('length("requestHash") = 64', name="ck_sync_version_restores_request_hash"),
+        CheckConstraint('"targetVersion" >= 1', name="ck_sync_version_restores_target_version"),
+        Index("ix_sync_version_restores_entity_created", "entityId", "restoredAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
+    entity_id: Mapped[int] = mapped_column("entityId", BigInteger, nullable=False)
+    operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    request_hash: Mapped[str] = mapped_column("requestHash", String(64), nullable=False)
+    target_version: Mapped[int] = mapped_column("targetVersion", BigInteger, nullable=False)
+    accepted_version_id: Mapped[int] = mapped_column(
+        "acceptedVersionId",
+        ForeignKey("sync_entity_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    actor_device_id: Mapped[str] = mapped_column("actorDeviceId", String(128), nullable=False)
+    restored_at: Mapped[datetime] = mapped_column("restoredAt", DateTime(timezone=True), nullable=False)
+    entity: Mapped[SyncEntityRow] = relationship(foreign_keys=[entity_id])
+    accepted_version: Mapped[SyncEntityVersionRow] = relationship(foreign_keys=[accepted_version_id])
 
 
 class AttachmentBlobRow(Base):

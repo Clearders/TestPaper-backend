@@ -31,6 +31,7 @@ from testpaper_backend.schemas import (
     UserEntity,
 )
 from testpaper_backend.services.attachment_maintenance import apply_attachment_reference_lifecycle
+from testpaper_backend.services.sync_conflicts import create_conflict
 from testpaper_backend.time_utils import now_utc
 
 IDEMPOTENCY_RETENTION_DAYS = 90
@@ -159,7 +160,7 @@ def _apply_mutation(
                     entityVersion=entity.version,
                     contentHash=entity.content_hash,
                 )
-            return _conflict(mutation, entity)
+            return create_conflict(session, user=user, device_id=device_id, mutation=mutation, entity=entity)
         entity = SyncEntityRow(
             owner_id=user.id,
             entity_type=mutation.entityType.value,
@@ -181,12 +182,12 @@ def _apply_mutation(
         if entity is None:
             return _rejected(mutation, "SYNC_ENTITY_NOT_FOUND", "The entity does not exist")
         if entity.version != mutation.baseVersion or entity.content_hash != mutation.baseContentHash:
-            return _conflict(mutation, entity)
+            return create_conflict(session, user=user, device_id=device_id, mutation=mutation, entity=entity)
         if mutation.kind == SyncMutationKind.restore:
             if not entity.tombstone:
-                return _conflict(mutation, entity)
+                return create_conflict(session, user=user, device_id=device_id, mutation=mutation, entity=entity)
         elif entity.tombstone:
-            return _conflict(mutation, entity)
+            return create_conflict(session, user=user, device_id=device_id, mutation=mutation, entity=entity)
         if mutation.kind != SyncMutationKind.delete and entity.content_hash == desired_hash:
             return SyncOperationResult(
                 operationId=mutation.operationId,
