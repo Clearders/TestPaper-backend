@@ -7,7 +7,7 @@
       "docs/adr/0004-sync-v1-cursors-idempotency-and-recovery.md"
     ]
   },
-  "schemaSha256": "4a7e7488f320c460d41a5fa1f6cb172de64f5edbbe989272867b4f760ba5fe2c",
-  "fixturesSha256": "620fd9b46feaba9e483f16d57a073605355fffe865dbdb61766ae4ab39dd8db2",
-  "semanticFingerprint": "71b5e9a335fd8e686e70f5b32271e4fe8a6c538ad36faef4924842df72f37549"
+  "schemaSha256": "ab1dcb227d32bfdf427b5070d22f55006936620e8cda0dfeea311ed1c9d673af",
+  "fixturesSha256": "77714bf27913073b19a36e62a333b876205c1adb9cead2a7c021852dd5b3cff8",
+  "semanticFingerprint": "da0e1fc85065e2c62978112bead5b8d89536c82ab71f3f1165fe15a43720e6eb"
 }

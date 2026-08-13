@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -38,6 +38,23 @@ class SyncOperationStatus(StrEnum):
     conflict = "conflict"
     rejected = "rejected"
     dependency_failed = "dependencyFailed"
+
+
+class SyncConflictReason(StrEnum):
+    concurrent_create = "concurrentCreate"
+    divergent_content = "divergentContent"
+    tombstone_divergence = "tombstoneDivergence"
+    restore_divergence = "restoreDivergence"
+    rename_divergence = "renameDivergence"
+
+
+class SyncResolutionAction(StrEnum):
+    keep_local = "keepLocal"
+    use_cloud = "useCloud"
+    save_copy = "saveCopy"
+    manual_merge = "manualMerge"
+    restore_version = "restoreVersion"
+    undo = "undo"
 
 
 class SyncErrorCode(StrEnum):
@@ -176,6 +193,97 @@ class SyncSnapshotResponse(BaseModel):
     nextCursor: str = Field(min_length=1)
     hasMore: bool
     resumeCursor: str = Field(min_length=1)
+
+
+class SyncConflictSnapshot(BaseModel):
+    """Immutable candidate captured when personal-device sync cannot converge."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schemaVersion: int = Field(ge=1)
+    version: int = Field(ge=0)
+    contentHash: ContentHash
+    mutationKind: SyncMutationKind
+    tombstone: bool
+    payload: dict[str, Any] | None
+    deviceId: str = Field(min_length=1, max_length=128)
+    modifiedAt: datetime
+
+
+class SyncConflictRecord(BaseModel):
+    """A personal-sync conflict; realtime collaborative revisions use a separate model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: Literal[1]
+    conflictId: StableId
+    origin: Literal["personalSync"]
+    entityType: SyncEntityType
+    entityId: StableId
+    reason: SyncConflictReason
+    base: SyncConflictSnapshot | None
+    local: SyncConflictSnapshot
+    cloud: SyncConflictSnapshot
+    detectedAt: datetime
+
+    @model_validator(mode="after")
+    def validate_supported_entity_and_baseline(self):
+        if self.entityType not in {SyncEntityType.question, SyncEntityType.paper, SyncEntityType.draft}:
+            raise ValueError("rich conflict records are limited to question, paper, and draft")
+        if self.reason == SyncConflictReason.concurrent_create:
+            if self.base is not None:
+                raise ValueError("concurrent create must preserve an explicit null baseline")
+        elif self.base is None:
+            raise ValueError("non-create conflicts require the common baseline snapshot")
+        return self
+
+
+class SyncConflictResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: Literal[1]
+    operationId: StableId
+    action: SyncResolutionAction
+    currentVersion: int = Field(ge=1)
+    currentContentHash: ContentHash
+    payload: dict[str, Any] | None = None
+    newEntityId: StableId | None = None
+    undoesResolutionId: StableId | None = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self):
+        if (self.action == SyncResolutionAction.save_copy) != (self.newEntityId is not None):
+            raise ValueError("saveCopy alone requires newEntityId")
+        if (self.action == SyncResolutionAction.undo) != (self.undoesResolutionId is not None):
+            raise ValueError("undo alone requires undoesResolutionId")
+        if self.action == SyncResolutionAction.manual_merge and self.payload is None:
+            raise ValueError("manualMerge requires the accepted payload")
+        return self
+
+
+class SyncConflictResolutionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: Literal[1]
+    resolutionId: StableId
+    conflictId: StableId
+    operationId: StableId
+    action: SyncResolutionAction
+    actorDeviceId: str = Field(min_length=1, max_length=128)
+    acceptedVersion: int = Field(ge=1)
+    acceptedContentHash: ContentHash
+    result: SyncConflictSnapshot
+    newEntityId: StableId | None = None
+    undoesResolutionId: StableId | None = None
+    resolvedAt: datetime
+
+    @model_validator(mode="after")
+    def validate_audit_links(self):
+        if (self.action == SyncResolutionAction.save_copy) != (self.newEntityId is not None):
+            raise ValueError("saveCopy alone records newEntityId")
+        if (self.action == SyncResolutionAction.undo) != (self.undoesResolutionId is not None):
+            raise ValueError("undo alone records undoesResolutionId")
+        return self
 
 
 class AttachmentUploadInitiateRequest(BaseModel):

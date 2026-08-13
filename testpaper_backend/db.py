@@ -521,6 +521,107 @@ class SyncOperationResultRow(Base):
     batch: Mapped[SyncIdempotencyBatchRow] = relationship(back_populates="operation_results")
 
 
+class SyncConflictRow(Base):
+    """Immutable three-way evidence for a personal-device sync conflict."""
+
+    __tablename__ = "sync_conflicts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["entityId", "ownerId"],
+            ["sync_entities.id", "sync_entities.ownerId"],
+            ondelete="RESTRICT",
+            name="fk_sync_conflicts_entity_owner",
+        ),
+        UniqueConstraint("id", "ownerId", name="uq_sync_conflicts_id_owner"),
+        UniqueConstraint("ownerId", "publicId", name="uq_sync_conflicts_owner_public_id"),
+        CheckConstraint("\"entityType\" IN ('question', 'paper', 'draft')", name="ck_sync_conflicts_entity_type"),
+        CheckConstraint("\"origin\" = 'personalSync'", name="ck_sync_conflicts_origin"),
+        CheckConstraint(
+            "\"reason\" IN ('concurrentCreate', 'divergentContent', 'tombstoneDivergence', 'restoreDivergence', 'renameDivergence')",
+            name="ck_sync_conflicts_reason",
+        ),
+        CheckConstraint(
+            '("reason" = \'concurrentCreate\' AND "baseSnapshot" IS NULL) OR '
+            '("reason" <> \'concurrentCreate\' AND "baseSnapshot" IS NOT NULL)',
+            name="ck_sync_conflicts_baseline",
+        ),
+        CheckConstraint("jsonb_typeof(\"localSnapshot\") = 'object'", name="ck_sync_conflicts_local_snapshot"),
+        CheckConstraint("jsonb_typeof(\"cloudSnapshot\") = 'object'", name="ck_sync_conflicts_cloud_snapshot"),
+        CheckConstraint(
+            '"baseSnapshot" IS NULL OR jsonb_typeof("baseSnapshot") = \'object\'',
+            name="ck_sync_conflicts_base_snapshot",
+        ),
+        Index("ix_sync_conflicts_owner_entity_detected", "ownerId", "entityId", "detectedAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
+    entity_id: Mapped[int] = mapped_column("entityId", BigInteger, nullable=False)
+    entity_type: Mapped[str] = mapped_column("entityType", String(32), nullable=False)
+    origin: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_snapshot: Mapped[dict[str, Any] | None] = mapped_column("baseSnapshot", JSONB, nullable=True)
+    local_snapshot: Mapped[dict[str, Any]] = mapped_column("localSnapshot", JSONB, nullable=False)
+    cloud_snapshot: Mapped[dict[str, Any]] = mapped_column("cloudSnapshot", JSONB, nullable=False)
+    detected_at: Mapped[datetime] = mapped_column("detectedAt", DateTime(timezone=True), nullable=False)
+
+
+class SyncConflictResolutionRow(Base):
+    """Append-only accepted version, restoration, or undo decision."""
+
+    __tablename__ = "sync_conflict_resolutions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["conflictId", "ownerId"],
+            ["sync_conflicts.id", "sync_conflicts.ownerId"],
+            ondelete="RESTRICT",
+            name="fk_sync_conflict_resolutions_conflict_owner",
+        ),
+        ForeignKeyConstraint(
+            ["undoesResolutionId", "ownerId"],
+            ["sync_conflict_resolutions.id", "sync_conflict_resolutions.ownerId"],
+            ondelete="RESTRICT",
+            name="fk_sync_conflict_resolutions_undo_owner",
+        ),
+        UniqueConstraint("id", "ownerId", name="uq_sync_conflict_resolutions_id_owner"),
+        UniqueConstraint("ownerId", "publicId", name="uq_sync_conflict_resolutions_owner_public_id"),
+        UniqueConstraint("ownerId", "operationId", name="uq_sync_conflict_resolutions_owner_operation"),
+        UniqueConstraint("undoesResolutionId", name="uq_sync_conflict_resolutions_single_undo"),
+        CheckConstraint(
+            "\"action\" IN ('keepLocal', 'useCloud', 'saveCopy', 'manualMerge', 'restoreVersion', 'undo')",
+            name="ck_sync_conflict_resolutions_action",
+        ),
+        CheckConstraint(
+            '("action" = \'saveCopy\' AND "newEntityPublicId" IS NOT NULL) OR ("action" <> \'saveCopy\' AND "newEntityPublicId" IS NULL)',
+            name="ck_sync_conflict_resolutions_copy_link",
+        ),
+        CheckConstraint(
+            '("action" = \'undo\' AND "undoesResolutionId" IS NOT NULL) OR ("action" <> \'undo\' AND "undoesResolutionId" IS NULL)',
+            name="ck_sync_conflict_resolutions_undo_link",
+        ),
+        CheckConstraint("jsonb_typeof(\"resultSnapshot\") = 'object'", name="ck_sync_conflict_resolutions_snapshot"),
+        Index("ix_sync_conflict_resolutions_conflict_resolved", "conflictId", "resolvedAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
+    conflict_id: Mapped[int] = mapped_column("conflictId", BigInteger, nullable=False)
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
+    operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    actor_device_id: Mapped[str] = mapped_column("actorDeviceId", String(128), nullable=False)
+    accepted_version_id: Mapped[int] = mapped_column(
+        "acceptedVersionId",
+        ForeignKey("sync_entity_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    result_snapshot: Mapped[dict[str, Any]] = mapped_column("resultSnapshot", JSONB, nullable=False)
+    new_entity_public_id: Mapped[str | None] = mapped_column("newEntityPublicId", String(36), nullable=True)
+    undoes_resolution_id: Mapped[int | None] = mapped_column("undoesResolutionId", BigInteger, nullable=True)
+    resolved_at: Mapped[datetime] = mapped_column("resolvedAt", DateTime(timezone=True), nullable=False)
+
+
 class AttachmentBlobRow(Base):
     """Content-addressed Cloud bytes. Authorization is never granted through this row."""
 
