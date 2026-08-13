@@ -61,3 +61,9 @@ POST /api/v1/users added the new `banks:publish` enum value to the `data/permiss
 POST /api/v1/users added the new `banks:read` enum value to the `data/permissions/items/` response property for the response status `201`
 POST /api/v1/users added the new `banks:subscribe` enum value to the `data/permissions/items/` response property for the response status `201`
 POST /api/v1/users added the new `banks:write` enum value to the `data/permissions/items/` response property for the response status `201`
+#
+# CLE-95 makes the already-reserved incomplete-upload condition machine-readable.
+# It is an additive stable error code; existing clients continue handling unknown
+# errors through the common error envelope while regenerated clients can resume
+# from the returned missingChunks list.
+POST /api/v1/sync/push added the new `SYNC_UPLOAD_INCOMPLETE` enum value to the `data/results/items/error/anyOf[subschema #1: SyncError]/code` response property for the response status `200`

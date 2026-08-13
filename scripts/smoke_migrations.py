@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from alembic.config import Config
@@ -434,6 +436,173 @@ def exercise_attachment_model(test_engine, owner_id: int) -> None:
         assert gc_eligible_at >= retention_until
 
 
+def exercise_attachment_transfer(test_engine, owner_id: int) -> None:
+    from fastapi import HTTPException
+
+    from testpaper_backend.db import UserRow
+    from testpaper_backend.schemas import AttachmentUploadInitiateRequest, UserEntity, UserRole
+    from testpaper_backend.security import permissions_for_role
+    from testpaper_backend.services import attachment_transfers
+    from testpaper_backend.services.attachment_storage import FilesystemAttachmentStorage
+
+    sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+    attachment_ids = [
+        "12121212-1212-4212-8212-121212121212",
+        "13131313-1313-4313-8313-131313131313",
+    ]
+    with sessions() as session:
+        user_row = session.get(UserRow, owner_id)
+        assert user_row is not None
+        user = UserEntity(
+            id=user_row.id,
+            publicId=user_row.public_id,
+            username=user_row.username,
+            displayName=user_row.display_name,
+            role=UserRole(user_row.role),
+            permissions=permissions_for_role(UserRole(user_row.role)),
+            isActive=user_row.is_active,
+            createdAt=user_row.created_at,
+            updatedAt=user_row.updated_at,
+        )
+        target_id = session.scalar(
+            text(
+                'SELECT "publicId" FROM sync_entities WHERE "ownerId" = :owner_id '
+                "AND \"entityType\" = 'question' AND tombstone = false LIMIT 1"
+            ),
+            {"owner_id": owner_id},
+        )
+        assert target_id is not None
+        for index, attachment_id in enumerate(attachment_ids):
+            session.execute(
+                text(
+                    'INSERT INTO sync_entities ("ownerId", "entityType", "publicId", scope, "schemaVersion", '
+                    'version, "contentHash", payload, tombstone, "createdAt", "updatedAt", "deletedAt") '
+                    "VALUES (:owner_id, 'attachment', :public_id, 'personal', 1, 1, :entity_hash, "
+                    "'{}'::jsonb, false, clock_timestamp(), clock_timestamp(), NULL)"
+                ),
+                {"owner_id": owner_id, "public_id": attachment_id, "entity_hash": str(index + 2) * 64},
+            )
+        session.commit()
+
+    attachment_transfers.SessionLocal = sessions
+    content = b"a" * (256 * 1024) + b"b" * 4096
+    digest = hashlib.sha256(content).hexdigest()
+    request = AttachmentUploadInitiateRequest(
+        protocolVersion=1,
+        idempotencyKey="attachment-smoke-1",
+        attachmentId=attachment_ids[0],
+        targetEntityId=target_id,
+        contentHash=digest,
+        byteSize=len(content),
+        chunkSize=256 * 1024,
+        fileName="migration-smoke.bin",
+        contentType="application/octet-stream",
+    )
+    with TemporaryDirectory() as storage_root:
+        storage = FilesystemAttachmentStorage(Path(storage_root))
+        initiated = attachment_transfers.initiate_attachment_upload(
+            request,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        replayed = attachment_transfers.initiate_attachment_upload(
+            request,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        assert replayed == initiated and initiated.missingChunks == [0, 1]
+
+        changed = request.model_copy(update={"fileName": "changed.bin"})
+        try:
+            attachment_transfers.initiate_attachment_upload(
+                changed,
+                user=user,
+                device_id="migration-smoke",
+                storage=storage,
+            )
+        except HTTPException as error:
+            assert error.detail["code"] == "SYNC_IDEMPOTENCY_MISMATCH"
+        else:
+            raise AssertionError("attachment idempotency key accepted different content")
+
+        first = content[: 256 * 1024]
+        receipt = attachment_transfers.upload_attachment_chunk(
+            upload_id=initiated.uploadId,
+            ordinal=0,
+            data=first,
+            content_hash=hashlib.sha256(first).hexdigest(),
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        duplicate = attachment_transfers.upload_attachment_chunk(
+            upload_id=initiated.uploadId,
+            ordinal=0,
+            data=first,
+            content_hash=hashlib.sha256(first).hexdigest(),
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        assert receipt.duplicate is False and duplicate.duplicate is True
+        try:
+            attachment_transfers.complete_attachment_upload(
+                upload_id=initiated.uploadId,
+                protocol_version=1,
+                user=user,
+                device_id="migration-smoke",
+                storage=storage,
+            )
+        except HTTPException as error:
+            assert error.detail["code"] == "SYNC_UPLOAD_INCOMPLETE"
+            assert error.detail["details"]["missingChunks"] == [1]
+        else:
+            raise AssertionError("incomplete attachment upload unexpectedly completed")
+
+        second = content[256 * 1024 :]
+        attachment_transfers.upload_attachment_chunk(
+            upload_id=initiated.uploadId,
+            ordinal=1,
+            data=second,
+            content_hash=hashlib.sha256(second).hexdigest(),
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        completed = attachment_transfers.complete_attachment_upload(
+            upload_id=initiated.uploadId,
+            protocol_version=1,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        completion_replay = attachment_transfers.complete_attachment_upload(
+            upload_id=initiated.uploadId,
+            protocol_version=1,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        assert completed.completed is True and completion_replay == completed
+        downloaded = attachment_transfers.download_attachment(
+            attachment_id=attachment_ids[0],
+            user=user,
+            storage=storage,
+        )
+        assert downloaded.content == content and downloaded.content_hash == digest
+
+        dedupe_request = request.model_copy(update={"idempotencyKey": "attachment-smoke-2", "attachmentId": attachment_ids[1]})
+        deduplicated = attachment_transfers.initiate_attachment_upload(
+            dedupe_request,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        assert deduplicated.completed is True and deduplicated.deduplicated is True
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exercise the Alembic history against a temporary PostgreSQL database.")
     parser.add_argument("--diagnostics", type=Path, help="Write the successful round-trip report as JSON.")
@@ -530,6 +699,7 @@ def main() -> None:
 
         owner_id = exercise_sync_push(test_engine)
         exercise_attachment_model(test_engine, owner_id)
+        exercise_attachment_transfer(test_engine, owner_id)
 
         test_engine.dispose()
         test_engine = None

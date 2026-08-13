@@ -172,6 +172,11 @@
       "retry": "correctChunk"
     },
     {
+      "code": "SYNC_UPLOAD_INCOMPLETE",
+      "http": 409,
+      "retry": "uploadMissingChunks"
+    },
+    {
       "code": "SYNC_ATTACHMENT_HASH_MISMATCH",
       "http": 422,
       "retry": "reupload"

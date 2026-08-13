@@ -615,6 +615,7 @@ class AttachmentUploadSessionRow(Base):
             name="fk_attachment_upload_sessions_reference_owner",
         ),
         UniqueConstraint("id", "ownerId", name="uq_attachment_upload_sessions_id_owner"),
+        UniqueConstraint("ownerId", "publicId", name="uq_attachment_upload_sessions_owner_public_id"),
         UniqueConstraint(
             "ownerId",
             "deviceId",
@@ -643,6 +644,7 @@ class AttachmentUploadSessionRow(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
     owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     device_id: Mapped[str] = mapped_column("deviceId", String(128), nullable=False)
     reference_id: Mapped[int] = mapped_column("referenceId", BigInteger, nullable=False)
