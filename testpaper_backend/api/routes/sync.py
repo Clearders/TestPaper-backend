@@ -33,7 +33,13 @@ from testpaper_backend.services.attachment_transfers import (
     initiate_attachment_upload,
     upload_attachment_chunk,
 )
-from testpaper_backend.services.sync_conflicts import get_conflict, list_versions, resolve_conflict, restore_version
+from testpaper_backend.services.sync_conflicts import (
+    get_conflict,
+    list_conflict_resolutions,
+    list_versions,
+    resolve_conflict,
+    restore_version,
+)
 from testpaper_backend.services.sync_push import push_mutations
 from testpaper_backend.services.sync_read import acknowledge_cursor, pull_changes, snapshot_entities
 
@@ -43,6 +49,14 @@ router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
 @router.get("/conflicts/{conflict_id}", response_model=Envelope[SyncConflictRecord])
 def get_sync_conflict(request: Request, conflict_id: str, current_user: CurrentUserDep):
     return envelope(get_conflict(conflict_id, user=current_user), request)
+
+
+@router.get(
+    "/conflicts/{conflict_id}/resolutions",
+    response_model=Envelope[list[SyncConflictResolutionRecord]],
+)
+def list_sync_conflict_resolutions(request: Request, conflict_id: str, current_user: CurrentUserDep):
+    return envelope(list_conflict_resolutions(conflict_id, user=current_user), request)
 
 
 @router.post("/conflicts/{conflict_id}/resolve", response_model=Envelope[SyncConflictResolutionRecord])

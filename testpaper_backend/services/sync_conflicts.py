@@ -193,6 +193,32 @@ def get_conflict(conflict_id: str, *, user: UserEntity) -> SyncConflictRecord:
         return record.model_copy(update={"entityId": entity.public_id})
 
 
+def list_conflict_resolutions(
+    conflict_id: str,
+    *,
+    user: UserEntity,
+) -> list[SyncConflictResolutionRecord]:
+    """Return the append-only resolution audit trail for an owned conflict."""
+    with SessionLocal() as session:
+        conflict = session.scalar(
+            select(SyncConflictRow).where(
+                SyncConflictRow.owner_id == user.id,
+                SyncConflictRow.public_id == conflict_id,
+            )
+        )
+        if conflict is None:
+            raise api_error(status.HTTP_404_NOT_FOUND, "SYNC_ENTITY_NOT_FOUND", "Conflict was not found")
+        rows = session.scalars(
+            select(SyncConflictResolutionRow)
+            .where(
+                SyncConflictResolutionRow.owner_id == user.id,
+                SyncConflictResolutionRow.conflict_id == conflict.id,
+            )
+            .order_by(SyncConflictResolutionRow.resolved_at.asc(), SyncConflictResolutionRow.id.asc())
+        ).all()
+        return [_resolution_record(row, conflict_id) for row in rows]
+
+
 def list_versions(entity_type: SyncEntityType, entity_id: str, *, user: UserEntity) -> list[SyncEntityVersionRecord]:
     entity_type = SyncEntityType(entity_type)
     with SessionLocal() as session:
