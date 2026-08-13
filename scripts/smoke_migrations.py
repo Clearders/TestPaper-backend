@@ -24,8 +24,7 @@ def exercise_sync_push(test_engine) -> None:
     from testpaper_backend.db import SyncChangeLogRow, SyncDeviceCursorRow, SyncEntityVersionRow, SyncStreamRow, UserRow
     from testpaper_backend.schemas import SyncAckRequest, SyncMutation, SyncOperationStatus, SyncPushRequest, UserEntity, UserRole
     from testpaper_backend.security import permissions_for_role
-    from testpaper_backend.services import sync_push
-    from testpaper_backend.services.sync_read import acknowledge_cursor, pull_changes, snapshot_entities
+    from testpaper_backend.services import sync_push, sync_read
     from testpaper_backend.time_utils import now_utc
 
     sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
@@ -56,6 +55,7 @@ def exercise_sync_push(test_engine) -> None:
         )
 
     sync_push.SessionLocal = sessions
+    sync_read.SessionLocal = sessions
     entity_id = "11111111-1111-4111-8111-111111111111"
     create_payload = SyncPushRequest(
         protocolVersion=1,
@@ -202,27 +202,27 @@ def exercise_sync_push(test_engine) -> None:
     assert restored.results[0].status == SyncOperationStatus.applied
     assert restored.results[0].entityVersion == 4
 
-    first_page = pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
-    repeated_first_page = pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
+    first_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
+    repeated_first_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
     assert repeated_first_page == first_page
     assert first_page.hasMore is True
     assert [change.kind.value for change in first_page.changes] == ["create", "update"]
-    first_ack = acknowledge_cursor(
+    first_ack = sync_read.acknowledge_cursor(
         SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=first_page.nextCursor),
         user=user,
         device_id="migration-smoke",
     )
     assert first_ack.advanced is True
-    second_page = pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
+    second_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
     assert second_page.hasMore is False
     assert [change.kind.value for change in second_page.changes] == ["delete", "restore"]
-    second_ack = acknowledge_cursor(
+    second_ack = sync_read.acknowledge_cursor(
         SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=second_page.nextCursor),
         user=user,
         device_id="migration-smoke",
     )
     assert second_ack.advanced is True
-    repeated_ack = acknowledge_cursor(
+    repeated_ack = sync_read.acknowledge_cursor(
         SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=first_page.nextCursor),
         user=user,
         device_id="migration-smoke",
@@ -235,17 +235,17 @@ def exercise_sync_push(test_engine) -> None:
         stream.retained_from_sequence = 3
         session.commit()
     try:
-        pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
+        sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
     except HTTPException as error:
         assert error.detail["code"] == "SYNC_CURSOR_EXPIRED"
     else:
         raise AssertionError("expired cursor unexpectedly produced an incremental page")
 
-    snapshot = snapshot_entities(user=user, device_id="migration-smoke", cursor=None, page_size=1)
+    snapshot = sync_read.snapshot_entities(user=user, device_id="migration-smoke", cursor=None, page_size=1)
     assert snapshot.hasMore is False
     assert len(snapshot.entries) == 1
     assert snapshot.entries[0].version == 4
-    recovered = acknowledge_cursor(
+    recovered = sync_read.acknowledge_cursor(
         SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=snapshot.resumeCursor),
         user=user,
         device_id="migration-smoke",
