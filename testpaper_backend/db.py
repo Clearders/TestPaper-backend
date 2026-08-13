@@ -463,7 +463,6 @@ class SyncIdempotencyBatchRow(Base):
             name="ck_sync_batches_complete_response",
         ),
         Index("ix_sync_batches_expiry", "expiresAt", "status"),
-        Index("ix_sync_batches_owner_created", "ownerId", "createdAt"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

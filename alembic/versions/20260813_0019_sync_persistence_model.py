@@ -228,12 +228,6 @@ def upgrade() -> None:
         ["expiresAt", "status"],
         unique=False,
     )
-    op.create_index(
-        "ix_sync_batches_owner_created",
-        "sync_idempotency_batches",
-        ["ownerId", "createdAt"],
-        unique=False,
-    )
 
     op.create_table(
         "sync_operation_results",
@@ -275,7 +269,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_sync_operation_results_operation", table_name="sync_operation_results")
     op.drop_table("sync_operation_results")
-    op.drop_index("ix_sync_batches_owner_created", table_name="sync_idempotency_batches")
     op.drop_index("ix_sync_batches_expiry", table_name="sync_idempotency_batches")
     op.drop_table("sync_idempotency_batches")
     op.drop_index("ix_sync_device_cursors_owner_seen", table_name="sync_device_cursors")
