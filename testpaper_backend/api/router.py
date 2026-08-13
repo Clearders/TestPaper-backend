@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from testpaper_backend.api.routes import auth, banks, drafts, health, images, meta, papers, questions, root, tasks, users, websocket
+from testpaper_backend.api.routes import auth, banks, drafts, health, images, meta, papers, questions, root, sync, tasks, users, websocket
 
 router = APIRouter()
 router.include_router(root.router)
@@ -16,5 +16,6 @@ router.include_router(papers.router)
 router.include_router(drafts.router)
 router.include_router(banks.public_router)
 router.include_router(banks.router)
+router.include_router(sync.router)
 router.include_router(health.router)
 router.include_router(tasks.router)

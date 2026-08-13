@@ -11,10 +11,11 @@ from testpaper_backend.config import (
     get_rate_limit_write_window_seconds,
 )
 from testpaper_backend.schemas import UserEntity
-from testpaper_backend.security import get_current_user, require_permission
+from testpaper_backend.security import get_current_sync_device, get_current_user, require_permission
 from testpaper_backend.services.rate_limit import check_rate_limit, get_client_ip
 
 CurrentUserDep = Annotated[UserEntity, Depends(get_current_user)]
+CurrentSyncDeviceDep = Annotated[str, Depends(get_current_sync_device)]
 QuestionsReadDep = Annotated[UserEntity, Depends(require_permission("questions:read"))]
 QuestionsWriteDep = Annotated[UserEntity, Depends(require_permission("questions:write"))]
 QuestionsDeleteDep = Annotated[UserEntity, Depends(require_permission("questions:delete"))]

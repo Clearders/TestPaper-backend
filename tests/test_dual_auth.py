@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from testpaper_backend.api.routes import auth as auth_routes
 from testpaper_backend.db import AuthAuditLogRow, AuthTokenRow, UserRow
 from testpaper_backend.schemas import NativeLoginRequest, PasswordChange, RefreshTokenRequest, TokenPair
-from testpaper_backend.security import get_user_from_token
+from testpaper_backend.security import get_current_sync_device, get_user_from_token
 from testpaper_backend.services import auth_sessions, profiles
 from testpaper_backend.services.auth_sessions import DeviceInfo
 
@@ -137,6 +137,31 @@ def test_access_and_session_tokens_are_valid_access_credentials(monkeypatch) -> 
 
         assert user.id == 1
         assert user.username == "user1"
+
+
+def test_sync_device_must_be_bound_to_native_access_token(monkeypatch) -> None:
+    access = _token_row("access-1", token_type="access", device_id="desktop-1")
+    rows = {"access-1": access}
+    monkeypatch.setattr("testpaper_backend.security.SessionLocal", lambda: FakeSession(rows, _user_row()))
+    request = _request("/api/v1/sync/push")
+    request.headers = {"authorization": "Bearer access-1"}
+    user = get_user_from_token("access-1")
+
+    assert get_current_sync_device(request, user) == "desktop-1"
+
+
+def test_browser_session_cannot_be_used_for_sync_push(monkeypatch) -> None:
+    browser = _token_row("session-1", token_type="session")
+    rows = {"session-1": browser}
+    monkeypatch.setattr("testpaper_backend.security.SessionLocal", lambda: FakeSession(rows, _user_row()))
+    request = _request("/api/v1/sync/push")
+    request.headers = {"authorization": "Bearer session-1"}
+    user = get_user_from_token("session-1")
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_sync_device(request, user)
+
+    assert exc_info.value.detail["code"] == "SYNC_DEVICE_REQUIRED"
 
 
 def test_expired_token_is_deleted_and_rejected(monkeypatch) -> None:

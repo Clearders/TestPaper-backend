@@ -349,7 +349,7 @@ class SyncEntityVersionRow(Base):
         CheckConstraint('"schemaVersion" >= 1', name="ck_sync_entity_versions_schema_version"),
         CheckConstraint('length("contentHash") = 64', name="ck_sync_entity_versions_content_hash"),
         CheckConstraint(
-            "\"mutationKind\" IN ('create', 'update', 'delete', 'restore')",
+            "\"mutationKind\" IN ('create', 'update', 'delete', 'restore', 'rename', 'attach', 'detach')",
             name="ck_sync_entity_versions_mutation_kind",
         ),
         Index("ix_sync_entity_versions_entity_created", "entityId", "createdAt"),

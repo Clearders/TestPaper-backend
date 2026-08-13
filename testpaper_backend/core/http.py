@@ -55,11 +55,15 @@ def register_security_headers(app: FastAPI) -> None:
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        sync_request = request.url.path.startswith("/api/v1/sync/")
+        batch_too_large = sync_request and any(
+            error["type"] == "too_long" and tuple(error["loc"][1:2]) == ("mutations",) for error in exc.errors()
+        )
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE if batch_too_large else status.HTTP_422_UNPROCESSABLE_ENTITY,
             content=error_envelope(
-                "VALIDATION_ERROR",
-                "Request validation failed",
+                "SYNC_BATCH_TOO_LARGE" if batch_too_large else "SYNC_BATCH_INVALID" if sync_request else "VALIDATION_ERROR",
+                "Sync batch contains too many mutations" if batch_too_large else "Request validation failed",
                 request,
                 details=[{"field": ".".join(str(item) for item in error["loc"][1:]), "reason": error["msg"]} for error in exc.errors()],
             ),
