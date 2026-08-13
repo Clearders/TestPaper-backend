@@ -110,6 +110,9 @@ from testpaper_backend.schemas.realtime import (
     validate_client_message,
 )
 from testpaper_backend.schemas.sync import (
+    SyncAckRequest,
+    SyncAckResponse,
+    SyncChange,
     SyncEntityType,
     SyncError,
     SyncErrorCode,
@@ -117,6 +120,8 @@ from testpaper_backend.schemas.sync import (
     SyncMutationKind,
     SyncOperationResult,
     SyncOperationStatus,
+    SyncPullResponse,
     SyncPushRequest,
     SyncPushResponse,
+    SyncSnapshotResponse,
 )

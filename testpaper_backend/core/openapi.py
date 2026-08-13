@@ -109,10 +109,13 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 responses.setdefault("404", _error_response("The requested resource was not found."))
             if method in unsafe_methods:
                 responses.setdefault("429", _error_response("The write rate limit was exceeded."))
+            if path.startswith("/api/v1/sync/"):
+                responses.setdefault("400", _error_response("The sync cursor or request is invalid."))
+                responses.setdefault("410", _error_response("The sync cursor or snapshot has expired."))
+                responses.setdefault("426", _error_response("The requested sync protocol version is unsupported."))
             if path == "/api/v1/sync/push":
                 responses.setdefault("409", _error_response("The idempotency key or entity base version conflicts."))
                 responses.setdefault("413", _error_response("The sync batch exceeds the operation limit."))
-                responses.setdefault("426", _error_response("The requested sync protocol version is unsupported."))
             if path.startswith("/api/v1/drafts/") and method == "patch":
                 responses.setdefault("409", _error_response("The draft revision conflicts with the current server revision."))
             if path.startswith("/api/v1/banks/") and method == "post" and path.endswith("/items"):
