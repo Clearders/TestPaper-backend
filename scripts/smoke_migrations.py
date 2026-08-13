@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -442,13 +443,14 @@ def exercise_attachment_transfer(test_engine, owner_id: int) -> None:
     from testpaper_backend.db import UserRow
     from testpaper_backend.schemas import AttachmentUploadInitiateRequest, UserEntity, UserRole
     from testpaper_backend.security import permissions_for_role
-    from testpaper_backend.services import attachment_transfers
+    from testpaper_backend.services import attachment_maintenance, attachment_transfers
     from testpaper_backend.services.attachment_storage import FilesystemAttachmentStorage
 
     sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     attachment_ids = [
         "12121212-1212-4212-8212-121212121212",
         "13131313-1313-4313-8313-131313131313",
+        "14141414-1414-4414-8414-141414141414",
     ]
     with sessions() as session:
         user_row = session.get(UserRow, owner_id)
@@ -602,6 +604,111 @@ def exercise_attachment_transfer(test_engine, owner_id: int) -> None:
         )
         assert deduplicated.completed is True and deduplicated.deduplicated is True
 
+        attachment_maintenance.SessionLocal = sessions
+        pending_content = b"unsynced attachment bytes"
+        pending_hash = hashlib.sha256(pending_content).hexdigest()
+        pending_request = request.model_copy(
+            update={
+                "idempotencyKey": "attachment-smoke-pending",
+                "attachmentId": attachment_ids[2],
+                "contentHash": pending_hash,
+                "byteSize": len(pending_content),
+            }
+        )
+        pending = attachment_transfers.initiate_attachment_upload(
+            pending_request,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        attachment_transfers.upload_attachment_chunk(
+            upload_id=pending.uploadId,
+            ordinal=0,
+            data=pending_content,
+            content_hash=pending_hash,
+            user=user,
+            device_id="migration-smoke",
+            storage=storage,
+        )
+        pending_key = storage.chunk_key(pending.uploadId, 0)
+        with sessions() as session:
+            current_time = session.scalar(text("SELECT clock_timestamp()"))
+            first_reference = session.scalar(
+                text('SELECT id FROM attachment_references WHERE "publicId" = :public_id'),
+                {"public_id": attachment_ids[0]},
+            )
+            second_reference = session.scalar(
+                text('SELECT id FROM attachment_references WHERE "publicId" = :public_id'),
+                {"public_id": attachment_ids[1]},
+            )
+            assert current_time is not None and first_reference is not None and second_reference is not None
+            session.execute(
+                text(
+                    'UPDATE attachment_upload_sessions SET "createdAt" = :created, "expiresAt" = :expired, '
+                    '"updatedAt" = :expired WHERE "publicId" = :upload_id'
+                ),
+                {
+                    "created": current_time - timedelta(days=2),
+                    "expired": current_time - timedelta(days=1),
+                    "upload_id": pending.uploadId,
+                },
+            )
+            session.execute(
+                text(
+                    'UPDATE attachment_references SET tombstone = true, "deletedAt" = :past, '
+                    '"retentionUntil" = :past, "updatedAt" = :past WHERE id = :reference_id'
+                ),
+                {"past": current_time - timedelta(days=31), "reference_id": first_reference},
+            )
+            session.commit()
+        protected = attachment_maintenance.run_attachment_maintenance(
+            storage=storage,
+            current_time=current_time,
+        )
+        assert protected.blobs_deleted == 0 and protected.expired_uploads_marked == 1
+        assert storage.verify(pending_key, content_hash=pending_hash, byte_size=len(pending_content))
+        expired_cleanup = attachment_maintenance.run_attachment_maintenance(
+            storage=storage,
+            current_time=current_time + timedelta(days=8),
+        )
+        assert expired_cleanup.expired_uploads_deleted == 1
+        assert not storage.verify(pending_key, content_hash=pending_hash, byte_size=len(pending_content))
+
+        with sessions() as session:
+            session.execute(
+                text(
+                    'UPDATE attachment_references SET tombstone = true, "deletedAt" = :past, '
+                    '"retentionUntil" = :past, "updatedAt" = :past WHERE id = :reference_id'
+                ),
+                {"past": current_time - timedelta(days=31), "reference_id": second_reference},
+            )
+            session.execute(
+                text(
+                    'UPDATE attachment_upload_sessions SET "createdAt" = :created, "expiresAt" = :expired, '
+                    '"updatedAt" = :expired WHERE "blobId" IS NOT NULL'
+                ),
+                {"created": current_time - timedelta(days=40), "expired": current_time - timedelta(days=31)},
+            )
+            session.commit()
+        reclaimed = attachment_maintenance.run_attachment_maintenance(
+            storage=storage,
+            current_time=current_time,
+        )
+        assert reclaimed.blobs_deleted == 1 and reclaimed.files_deleted == 1
+        with sessions() as session:
+            assert session.scalar(text("SELECT COUNT(*) FROM attachment_blobs WHERE sha256 = :digest"), {"digest": digest}) == 0
+            assert (
+                session.scalar(
+                    text(
+                        'SELECT COUNT(*) FROM attachment_references WHERE "publicId" IN (:first, :second) '
+                        "AND tombstone = true AND availability = 'pending' AND \"blobId\" IS NULL"
+                    ),
+                    {"first": attachment_ids[0], "second": attachment_ids[1]},
+                )
+                == 2
+            )
+            assert session.scalar(text("SELECT COUNT(*) FROM attachment_gc_audit")) >= 2
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Exercise the Alembic history against a temporary PostgreSQL database.")
@@ -646,6 +753,7 @@ def main() -> None:
         expected_tables = {
             "alembic_version",
             "attachment_blobs",
+            "attachment_gc_audit",
             "attachment_references",
             "attachment_upload_chunks",
             "attachment_upload_sessions",

@@ -684,6 +684,27 @@ class AttachmentUploadChunkRow(Base):
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
 
 
+class AttachmentGcAuditRow(Base):
+    """Append-only evidence for delayed attachment and upload reclamation."""
+
+    __tablename__ = "attachment_gc_audit"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('expired_upload_deleted', 'blob_metadata_deleted', 'blob_file_deleted', 'blob_file_delete_failed')",
+            name="ck_attachment_gc_audit_action",
+        ),
+        Index("ix_attachment_gc_audit_created", "createdAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    target_kind: Mapped[str] = mapped_column("targetKind", String(16), nullable=False)
+    target_id: Mapped[str] = mapped_column("targetId", String(64), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column("contentHash", String(64), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+
+
 DATABASE_URL = get_database_url(required=False)
 engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True, pool_size=20, max_overflow=10) if DATABASE_URL else None
 _SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False) if engine is not None else None

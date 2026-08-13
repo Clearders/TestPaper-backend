@@ -12,6 +12,7 @@ from testpaper_backend.services.attachment_access import authorized_attachment_s
 
 ATTACHMENT_TABLES = {
     "attachment_blobs",
+    "attachment_gc_audit",
     "attachment_references",
     "attachment_upload_sessions",
     "attachment_upload_chunks",
@@ -65,6 +66,13 @@ def test_upload_state_is_replayable_without_embedding_bytes() -> None:
         "ordinal",
     )
     assert "payload" not in session_table.columns and "bytes" not in session_table.columns
+
+
+def test_garbage_collection_audit_is_bounded_and_append_only() -> None:
+    table = Base.metadata.tables["attachment_gc_audit"]
+    assert "ck_attachment_gc_audit_action" in named_constraints("attachment_gc_audit", CheckConstraint)
+    assert "ix_attachment_gc_audit_created" in {index.name for index in table.indexes}
+    assert "payload" not in table.columns and "bytes" not in table.columns
 
 
 def test_download_query_never_treats_blob_identity_as_acl() -> None:

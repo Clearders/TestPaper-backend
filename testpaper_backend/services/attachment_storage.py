@@ -96,3 +96,22 @@ class FilesystemAttachmentStorage:
         if not self.verify(key, content_hash=content_hash, byte_size=byte_size):
             raise AttachmentStorageError("attachment hash or size mismatch")
         return self._path(key).read_bytes()
+
+    def delete(self, key: str) -> bool:
+        path = self._path(key)
+        if not path.exists():
+            return False
+        if not path.is_file():
+            raise AttachmentStorageError("attachment storage key is not a file")
+        try:
+            path.unlink()
+        except OSError as error:
+            raise AttachmentStorageError("attachment file could not be deleted") from error
+        parent = path.parent
+        while parent != self.root and parent != self.root.parent:
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+        return True
