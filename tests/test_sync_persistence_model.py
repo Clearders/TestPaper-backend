@@ -14,6 +14,7 @@ SYNC_TABLES = {
     "sync_operation_results",
     "sync_conflicts",
     "sync_conflict_resolutions",
+    "sync_version_restores",
 }
 
 
@@ -86,6 +87,8 @@ def test_conflicts_preserve_three_way_snapshots_and_resolution_audit_links() -> 
         "ck_sync_conflict_resolutions_undo_link",
     } <= checks
     assert {"acceptedVersionId", "resultSnapshot", "undoesResolutionId", "resolvedAt"} <= set(resolution.columns.keys())
+    assert "requestHash" in resolution.columns
+    assert "uq_sync_version_restores_owner_operation" in constraint_names("sync_version_restores", UniqueConstraint)
 
 
 def test_cursor_is_tenant_scoped_and_bound_to_a_stream_epoch() -> None:
