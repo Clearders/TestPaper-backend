@@ -127,6 +127,21 @@ def get_current_sync_device(request: Request, current_user: UserEntity = Current
         return token_row.device_id
 
 
+def get_current_conflict_actor(request: Request, current_user: UserEntity = CurrentUserDependency) -> str:
+    """Return an auditable device/session identity without exposing the credential."""
+    token = get_request_token(request)
+    with SessionLocal() as session:
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        if token_row is None or token_row.user_id != current_user.id:
+            raise auth_error()
+        if token_row.token_type == TokenType.access.value and token_row.device_id:
+            return token_row.device_id
+        if token_row.token_type == TokenType.session.value and token:
+            digest = hashlib.sha256(token.encode()).hexdigest()[:32]
+            return f"web-session:{digest}"
+        raise auth_error("SYNC_ACTOR_REQUIRED", "Conflict recovery requires an active Web or native session")
+
+
 def require_permission(permission: Permission):
     def dependency(current_user: UserEntity = CurrentUserDependency) -> UserEntity:
         if not has_permission(current_user, permission):
