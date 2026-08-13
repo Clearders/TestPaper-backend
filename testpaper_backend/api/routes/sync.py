@@ -4,7 +4,12 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Header, Query, Request, Response, status
 
-from testpaper_backend.api.dependencies import CurrentSyncDeviceDep, CurrentUserDep, RateLimitWriteDep
+from testpaper_backend.api.dependencies import (
+    CurrentConflictActorDep,
+    CurrentSyncDeviceDep,
+    CurrentUserDep,
+    RateLimitWriteDep,
+)
 from testpaper_backend.core.responses import envelope
 from testpaper_backend.schemas import (
     AttachmentChunkReceipt,
@@ -65,7 +70,7 @@ def resolve_sync_conflict(
     conflict_id: str,
     payload: SyncConflictResolutionRequest,
     current_user: CurrentUserDep,
-    device_id: CurrentSyncDeviceDep,
+    device_id: CurrentConflictActorDep,
     _: RateLimitWriteDep,
 ):
     return envelope(resolve_conflict(conflict_id, payload, user=current_user, device_id=device_id), request)
@@ -95,7 +100,7 @@ def restore_sync_entity_version(
     version: int,
     payload: SyncVersionRestoreRequest,
     current_user: CurrentUserDep,
-    device_id: CurrentSyncDeviceDep,
+    device_id: CurrentConflictActorDep,
     _: RateLimitWriteDep,
 ):
     result = restore_version(
