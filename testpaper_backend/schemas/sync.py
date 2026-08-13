@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
@@ -132,3 +133,45 @@ class SyncPushResponse(BaseModel):
     protocolVersion: int
     batchId: StableId
     results: list[SyncOperationResult]
+
+
+class SyncChange(BaseModel):
+    sequence: str = Field(pattern=r"^[0-9]+$")
+    entityType: SyncEntityType
+    entityId: StableId
+    kind: SyncMutationKind
+    version: int = Field(ge=1)
+    contentHash: ContentHash
+    updatedAt: datetime
+    snapshot: dict[str, Any] | None = None
+
+
+class SyncPullResponse(BaseModel):
+    protocolVersion: int
+    changes: list[SyncChange]
+    nextCursor: str = Field(min_length=1)
+    hasMore: bool
+
+
+class SyncAckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersion: int
+    deviceId: str = Field(min_length=1, max_length=128)
+    cursor: str = Field(min_length=1)
+
+
+class SyncAckResponse(BaseModel):
+    protocolVersion: int
+    deviceId: str
+    cursor: str
+    advanced: bool
+
+
+class SyncSnapshotResponse(BaseModel):
+    protocolVersion: int
+    snapshotId: StableId
+    entries: list[SyncChange]
+    nextCursor: str = Field(min_length=1)
+    hasMore: bool
+    resumeCursor: str = Field(min_length=1)

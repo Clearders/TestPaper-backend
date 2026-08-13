@@ -260,6 +260,17 @@ def get_rate_limit_write_window_seconds() -> int:
     return _positive_int("RATE_LIMIT_WRITE_WINDOW_SECONDS", 60)
 
 
+def get_sync_cursor_secret() -> str:
+    value = os.getenv("SYNC_CURSOR_SECRET", "").strip()
+    if not value:
+        if get_app_env() in {"staging", "production"}:
+            raise RuntimeError("SYNC_CURSOR_SECRET is required in staging and production.")
+        value = "testpapers-local-sync-cursor-secret"
+    if len(value) < 32:
+        raise RuntimeError("SYNC_CURSOR_SECRET must contain at least 32 characters.")
+    return value
+
+
 def get_data_dir() -> Path:
     raw = os.getenv("DATA_DIR", ".runtime")
     path = Path(raw).expanduser()
@@ -330,6 +341,7 @@ def validate_configuration(*, require_database: bool = True) -> dict[str, object
     capture("rate_limit_window_seconds", get_rate_limit_window_seconds)
     capture("rate_limit_write_max_attempts", get_rate_limit_write_max_attempts)
     capture("rate_limit_write_window_seconds", get_rate_limit_write_window_seconds)
+    capture("sync_cursor_secret", get_sync_cursor_secret)
     capture("object_storage", get_object_storage_settings)
 
     environment = values.get("environment")
@@ -339,6 +351,8 @@ def validate_configuration(*, require_database: bool = True) -> dict[str, object
         errors.append("CORS_ORIGINS is required in staging and production.")
     if environment in {"staging", "production"} and not os.getenv("TRUSTED_HOSTS"):
         errors.append("TRUSTED_HOSTS is required in staging and production.")
+    if environment in {"staging", "production"} and not os.getenv("SYNC_CURSOR_SECRET"):
+        errors.append("SYNC_CURSOR_SECRET is required in staging and production.")
 
     if errors:
         raise ConfigurationError(list(dict.fromkeys(errors)))

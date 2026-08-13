@@ -1135,6 +1135,50 @@
         "title": "Envelope[QuestionEntity]",
         "type": "object"
       },
+      "Envelope_SyncAckResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncAckResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SyncAckResponse]",
+        "type": "object"
+      },
+      "Envelope_SyncPullResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncPullResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SyncPullResponse]",
+        "type": "object"
+      },
       "Envelope_SyncPushResponse_": {
         "properties": {
           "data": {
@@ -1155,6 +1199,28 @@
           "meta"
         ],
         "title": "Envelope[SyncPushResponse]",
+        "type": "object"
+      },
+      "Envelope_SyncSnapshotResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncSnapshotResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SyncSnapshotResponse]",
         "type": "object"
       },
       "Envelope_TokenPair_": {
@@ -4527,6 +4593,119 @@
         "title": "SortOrder",
         "type": "string"
       },
+      "SyncAckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "minLength": 1,
+            "title": "Cursor",
+            "type": "string"
+          },
+          "deviceId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Deviceid",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "deviceId",
+          "cursor"
+        ],
+        "title": "SyncAckRequest",
+        "type": "object"
+      },
+      "SyncAckResponse": {
+        "properties": {
+          "advanced": {
+            "title": "Advanced",
+            "type": "boolean"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "deviceId": {
+            "title": "Deviceid",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "deviceId",
+          "cursor",
+          "advanced"
+        ],
+        "title": "SyncAckResponse",
+        "type": "object"
+      },
+      "SyncChange": {
+        "properties": {
+          "contentHash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Contenthash",
+            "type": "string"
+          },
+          "entityId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Entityid",
+            "type": "string"
+          },
+          "entityType": {
+            "$ref": "#/components/schemas/SyncEntityType"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SyncMutationKind"
+          },
+          "sequence": {
+            "pattern": "^[0-9]+$",
+            "title": "Sequence",
+            "type": "string"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sequence",
+          "entityType",
+          "entityId",
+          "kind",
+          "version",
+          "contentHash",
+          "updatedAt"
+        ],
+        "title": "SyncChange",
+        "type": "object"
+      },
       "SyncEntityType": {
         "enum": [
           "question",
@@ -4781,6 +4960,38 @@
         "title": "SyncOperationStatus",
         "type": "string"
       },
+      "SyncPullResponse": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/SyncChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "hasMore": {
+            "title": "Hasmore",
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "minLength": 1,
+            "title": "Nextcursor",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "changes",
+          "nextCursor",
+          "hasMore"
+        ],
+        "title": "SyncPullResponse",
+        "type": "object"
+      },
       "SyncPushRequest": {
         "additionalProperties": false,
         "properties": {
@@ -4842,6 +5053,50 @@
           "results"
         ],
         "title": "SyncPushResponse",
+        "type": "object"
+      },
+      "SyncSnapshotResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SyncChange"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "hasMore": {
+            "title": "Hasmore",
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "minLength": 1,
+            "title": "Nextcursor",
+            "type": "string"
+          },
+          "protocolVersion": {
+            "title": "Protocolversion",
+            "type": "integer"
+          },
+          "resumeCursor": {
+            "minLength": 1,
+            "title": "Resumecursor",
+            "type": "string"
+          },
+          "snapshotId": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Snapshotid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocolVersion",
+          "snapshotId",
+          "entries",
+          "nextCursor",
+          "hasMore",
+          "resumeCursor"
+        ],
+        "title": "SyncSnapshotResponse",
         "type": "object"
       },
       "TokenPair": {
@@ -12486,6 +12741,248 @@
         ]
       }
     },
+    "/api/v1/sync/ack": {
+      "post": {
+        "operationId": "ack_sync_cursor",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncAckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SyncAckResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The write rate limit was exceeded."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Ack Sync Cursor",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/pull": {
+      "get": {
+        "operationId": "pull_sync_changes",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SyncPullResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Pull Sync Changes",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
     "/api/v1/sync/push": {
       "post": {
         "operationId": "push_sync_mutations",
@@ -12509,6 +13006,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
           },
           "401": {
             "content": {
@@ -12539,6 +13046,16 @@
               }
             },
             "description": "The idempotency key or entity base version conflicts."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
           },
           "413": {
             "content": {
@@ -12597,6 +13114,132 @@
           }
         ],
         "summary": "Push Sync Mutations",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
+    "/api/v1/sync/snapshot": {
+      "get": {
+        "operationId": "get_sync_snapshot",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Pagesize",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SyncSnapshotResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get Sync Snapshot",
         "tags": [
           "sync"
         ]

@@ -21,10 +21,10 @@ from testpaper_backend.config import get_database_url
 def exercise_sync_push(test_engine) -> None:
     from fastapi import HTTPException
 
-    from testpaper_backend.db import SyncChangeLogRow, SyncEntityVersionRow, UserRow
-    from testpaper_backend.schemas import SyncMutation, SyncOperationStatus, SyncPushRequest, UserEntity, UserRole
+    from testpaper_backend.db import SyncChangeLogRow, SyncDeviceCursorRow, SyncEntityVersionRow, SyncStreamRow, UserRow
+    from testpaper_backend.schemas import SyncAckRequest, SyncMutation, SyncOperationStatus, SyncPushRequest, UserEntity, UserRole
     from testpaper_backend.security import permissions_for_role
-    from testpaper_backend.services import sync_push
+    from testpaper_backend.services import sync_push, sync_read
     from testpaper_backend.time_utils import now_utc
 
     sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
@@ -55,6 +55,7 @@ def exercise_sync_push(test_engine) -> None:
         )
 
     sync_push.SessionLocal = sessions
+    sync_read.SessionLocal = sessions
     entity_id = "11111111-1111-4111-8111-111111111111"
     create_payload = SyncPushRequest(
         protocolVersion=1,
@@ -146,11 +147,115 @@ def exercise_sync_push(test_engine) -> None:
                 "device-b",
             ),
         ]
-        statuses = sorted(future.result().results[0].status.value for future in futures)
+        concurrent_results = [future.result().results[0] for future in futures]
+        statuses = sorted(result.status.value for result in concurrent_results)
     assert statuses == ["applied", "conflict"]
+    applied_update = next(result for result in concurrent_results if result.status == SyncOperationStatus.applied)
+    assert applied_update.entityVersion == 2 and applied_update.contentHash is not None
+
+    deleted = sync_push.push_mutations(
+        SyncPushRequest(
+            protocolVersion=1,
+            batchId="88888888-8888-4888-8888-888888888888",
+            deviceId="migration-smoke",
+            mutations=[
+                SyncMutation(
+                    operationId="99999999-9999-4999-8999-999999999999",
+                    entityType="question",
+                    entityId=entity_id,
+                    kind="delete",
+                    baseVersion=2,
+                    baseContentHash=applied_update.contentHash,
+                    payload=None,
+                    dependsOn=[],
+                )
+            ],
+        ),
+        user=user,
+        authenticated_device_id="migration-smoke",
+        request_id="sync-smoke-delete",
+    )
+    assert deleted.results[0].status == SyncOperationStatus.applied
+    assert deleted.results[0].entityVersion == 3 and deleted.results[0].contentHash is not None
+    restored = sync_push.push_mutations(
+        SyncPushRequest(
+            protocolVersion=1,
+            batchId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            deviceId="migration-smoke",
+            mutations=[
+                SyncMutation(
+                    operationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                    entityType="question",
+                    entityId=entity_id,
+                    kind="restore",
+                    baseVersion=3,
+                    baseContentHash=deleted.results[0].contentHash,
+                    payload={"text": "restored", "answer": 4},
+                    dependsOn=[],
+                )
+            ],
+        ),
+        user=user,
+        authenticated_device_id="migration-smoke",
+        request_id="sync-smoke-restore",
+    )
+    assert restored.results[0].status == SyncOperationStatus.applied
+    assert restored.results[0].entityVersion == 4
+
+    first_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
+    repeated_first_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=None, page_size=2)
+    assert repeated_first_page == first_page
+    assert first_page.hasMore is True
+    assert [change.kind.value for change in first_page.changes] == ["create", "update"]
+    first_ack = sync_read.acknowledge_cursor(
+        SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=first_page.nextCursor),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert first_ack.advanced is True
+    second_page = sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
+    assert second_page.hasMore is False
+    assert [change.kind.value for change in second_page.changes] == ["delete", "restore"]
+    second_ack = sync_read.acknowledge_cursor(
+        SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=second_page.nextCursor),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert second_ack.advanced is True
+    repeated_ack = sync_read.acknowledge_cursor(
+        SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=first_page.nextCursor),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert repeated_ack.advanced is False
+
     with sessions() as session:
-        assert session.query(SyncEntityVersionRow).count() == 2
-        assert session.query(SyncChangeLogRow).count() == 2
+        stream = session.get(SyncStreamRow, (user.id, "personal"))
+        assert stream is not None
+        stream.retained_from_sequence = 3
+        session.commit()
+    try:
+        sync_read.pull_changes(user=user, device_id="migration-smoke", cursor=first_page.nextCursor, page_size=2)
+    except HTTPException as error:
+        assert error.detail["code"] == "SYNC_CURSOR_EXPIRED"
+    else:
+        raise AssertionError("expired cursor unexpectedly produced an incremental page")
+
+    snapshot = sync_read.snapshot_entities(user=user, device_id="migration-smoke", cursor=None, page_size=1)
+    assert snapshot.hasMore is False
+    assert len(snapshot.entries) == 1
+    assert snapshot.entries[0].version == 4
+    recovered = sync_read.acknowledge_cursor(
+        SyncAckRequest(protocolVersion=1, deviceId="migration-smoke", cursor=snapshot.resumeCursor),
+        user=user,
+        device_id="migration-smoke",
+    )
+    assert recovered.advanced is False
+    with sessions() as session:
+        assert session.query(SyncEntityVersionRow).count() == 4
+        assert session.query(SyncChangeLogRow).count() == 4
+        cursor_row = session.get(SyncDeviceCursorRow, (user.id, "migration-smoke", "personal"))
+        assert cursor_row is not None and cursor_row.cursor_sequence == 4
 
 
 def parse_args() -> argparse.Namespace:

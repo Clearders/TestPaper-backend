@@ -48,6 +48,18 @@ def test_sync_push_publishes_contract_1_2_and_stable_error_responses() -> None:
         }
 
 
+def test_sync_read_endpoints_are_bearer_only_and_publish_recovery_errors() -> None:
+    contract = app.openapi()
+    for path, method in (
+        ("/api/v1/sync/pull", "get"),
+        ("/api/v1/sync/ack", "post"),
+        ("/api/v1/sync/snapshot", "get"),
+    ):
+        operation = contract["paths"][path][method]
+        assert operation["security"] == [{"bearerAuth": []}]
+        assert {"400", "410", "426"} <= set(operation["responses"])
+
+
 def test_binary_downloads_do_not_claim_to_return_json() -> None:
     contract = app.openapi()
     for path, method in (
