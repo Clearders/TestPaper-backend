@@ -298,6 +298,7 @@ class SyncEntityRow(Base):
     __tablename__ = "sync_entities"
     __table_args__ = (
         UniqueConstraint("id", "ownerId", name="uq_sync_entities_id_owner"),
+        UniqueConstraint("id", "ownerId", "scope", name="uq_sync_entities_id_owner_scope"),
         UniqueConstraint("ownerId", "entityType", "publicId", name="uq_sync_entities_owner_type_public_id"),
         CheckConstraint(
             "\"entityType\" IN ('question', 'paper', 'draft', 'attachment', 'comment', 'favorite', 'setting')",
@@ -518,6 +519,167 @@ class SyncOperationResultRow(Base):
     error_code: Mapped[str | None] = mapped_column("errorCode", String(64), nullable=True)
     details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     batch: Mapped[SyncIdempotencyBatchRow] = relationship(back_populates="operation_results")
+
+
+class AttachmentBlobRow(Base):
+    """Content-addressed Cloud bytes. Authorization is never granted through this row."""
+
+    __tablename__ = "attachment_blobs"
+    __table_args__ = (
+        UniqueConstraint("sha256", name="uq_attachment_blobs_sha256"),
+        UniqueConstraint("storageKey", name="uq_attachment_blobs_storage_key"),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_attachment_blobs_sha256"),
+        CheckConstraint('"byteSize" >= 0', name="ck_attachment_blobs_byte_size"),
+        CheckConstraint('"referenceCount" >= 0', name="ck_attachment_blobs_reference_count"),
+        CheckConstraint("status IN ('pending', 'available', 'quarantined')", name="ck_attachment_blobs_status"),
+        CheckConstraint("status <> 'available' OR \"verifiedAt\" IS NOT NULL", name="ck_attachment_blobs_available_verified"),
+        Index("ix_attachment_blobs_gc", "status", "referenceCount", "gcEligibleAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column("byteSize", BigInteger, nullable=False)
+    content_type: Mapped[str | None] = mapped_column("contentType", String(255), nullable=True)
+    storage_key: Mapped[str] = mapped_column("storageKey", String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reference_count: Mapped[int] = mapped_column("referenceCount", BigInteger, nullable=False, default=0)
+    verified_at: Mapped[datetime | None] = mapped_column("verifiedAt", DateTime(timezone=True), nullable=True)
+    gc_eligible_at: Mapped[datetime | None] = mapped_column("gcEligibleAt", DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+
+
+class AttachmentReferenceRow(Base):
+    """User-visible attachment metadata whose ACL is inherited from its target Sync entity."""
+
+    __tablename__ = "attachment_references"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["targetEntityId", "ownerId", "scope"],
+            ["sync_entities.id", "sync_entities.ownerId", "sync_entities.scope"],
+            ondelete="CASCADE",
+            name="fk_attachment_references_target_acl",
+        ),
+        ForeignKeyConstraint(
+            ["attachmentEntityId", "ownerId", "scope"],
+            ["sync_entities.id", "sync_entities.ownerId", "sync_entities.scope"],
+            ondelete="CASCADE",
+            name="fk_attachment_references_sync_identity",
+        ),
+        UniqueConstraint("id", "ownerId", name="uq_attachment_references_id_owner"),
+        UniqueConstraint("ownerId", "publicId", name="uq_attachment_references_owner_public_id"),
+        CheckConstraint('length("publicId") = 36', name="ck_attachment_references_public_id"),
+        CheckConstraint("\"contentHash\" ~ '^[0-9a-f]{64}$'", name="ck_attachment_references_content_hash"),
+        CheckConstraint('"byteSize" >= 0', name="ck_attachment_references_byte_size"),
+        CheckConstraint("availability IN ('pending', 'available')", name="ck_attachment_references_availability"),
+        CheckConstraint(
+            "(availability = 'available' AND \"blobId\" IS NOT NULL) OR (availability = 'pending' AND \"blobId\" IS NULL)",
+            name="ck_attachment_references_blob_availability",
+        ),
+        CheckConstraint(
+            '(tombstone AND "deletedAt" IS NOT NULL AND "retentionUntil" IS NOT NULL '
+            'AND "retentionUntil" >= "deletedAt") OR '
+            '(NOT tombstone AND "deletedAt" IS NULL AND "retentionUntil" IS NULL)',
+            name="ck_attachment_references_tombstone_retention",
+        ),
+        Index("ix_attachment_references_owner_target", "ownerId", "targetEntityId", "tombstone"),
+        Index("ix_attachment_references_blob", "blobId", "tombstone"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    attachment_entity_id: Mapped[int] = mapped_column("attachmentEntityId", BigInteger, nullable=False)
+    target_entity_id: Mapped[int] = mapped_column("targetEntityId", BigInteger, nullable=False)
+    blob_id: Mapped[int | None] = mapped_column("blobId", ForeignKey("attachment_blobs.id", ondelete="RESTRICT"), nullable=True)
+    content_hash: Mapped[str] = mapped_column("contentHash", String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column("byteSize", BigInteger, nullable=False)
+    file_name: Mapped[str] = mapped_column("fileName", String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column("contentType", String(255), nullable=False)
+    availability: Mapped[str] = mapped_column(String(16), nullable=False)
+    tombstone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column("deletedAt", DateTime(timezone=True), nullable=True)
+    retention_until: Mapped[datetime | None] = mapped_column("retentionUntil", DateTime(timezone=True), nullable=True)
+
+
+class AttachmentUploadSessionRow(Base):
+    __tablename__ = "attachment_upload_sessions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["referenceId", "ownerId"],
+            ["attachment_references.id", "attachment_references.ownerId"],
+            ondelete="CASCADE",
+            name="fk_attachment_upload_sessions_reference_owner",
+        ),
+        UniqueConstraint("id", "ownerId", name="uq_attachment_upload_sessions_id_owner"),
+        UniqueConstraint(
+            "ownerId",
+            "deviceId",
+            "idempotencyKey",
+            name="uq_attachment_upload_sessions_owner_device_key",
+        ),
+        UniqueConstraint("storagePrefix", name="uq_attachment_upload_sessions_storage_prefix"),
+        CheckConstraint("\"requestHash\" ~ '^[0-9a-f]{64}$'", name="ck_attachment_upload_sessions_request_hash"),
+        CheckConstraint("\"contentHash\" ~ '^[0-9a-f]{64}$'", name="ck_attachment_upload_sessions_content_hash"),
+        CheckConstraint('"byteSize" >= 0', name="ck_attachment_upload_sessions_byte_size"),
+        CheckConstraint('"chunkSize" > 0', name="ck_attachment_upload_sessions_chunk_size"),
+        CheckConstraint('"totalChunks" > 0', name="ck_attachment_upload_sessions_total_chunks"),
+        CheckConstraint('"uploadedBytes" >= 0 AND "uploadedBytes" <= "byteSize"', name="ck_attachment_upload_sessions_uploaded_bytes"),
+        CheckConstraint(
+            "status IN ('initiated', 'uploading', 'completed', 'expired', 'aborted')",
+            name="ck_attachment_upload_sessions_status",
+        ),
+        CheckConstraint(
+            '(status = \'completed\' AND "blobId" IS NOT NULL AND "completedAt" IS NOT NULL) OR '
+            "(status <> 'completed' AND \"completedAt\" IS NULL)",
+            name="ck_attachment_upload_sessions_completion",
+        ),
+        CheckConstraint('"expiresAt" > "createdAt"', name="ck_attachment_upload_sessions_expiry"),
+        Index("ix_attachment_upload_sessions_expiry", "status", "expiresAt"),
+        Index("ix_attachment_upload_sessions_owner_reference", "ownerId", "referenceId"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id: Mapped[str] = mapped_column("deviceId", String(128), nullable=False)
+    reference_id: Mapped[int] = mapped_column("referenceId", BigInteger, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column("requestHash", String(64), nullable=False)
+    content_hash: Mapped[str] = mapped_column("contentHash", String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column("byteSize", BigInteger, nullable=False)
+    chunk_size: Mapped[int] = mapped_column("chunkSize", Integer, nullable=False)
+    total_chunks: Mapped[int] = mapped_column("totalChunks", Integer, nullable=False)
+    uploaded_bytes: Mapped[int] = mapped_column("uploadedBytes", BigInteger, nullable=False, default=0)
+    storage_prefix: Mapped[str] = mapped_column("storagePrefix", String(512), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    blob_id: Mapped[int | None] = mapped_column("blobId", ForeignKey("attachment_blobs.id", ondelete="RESTRICT"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column("expiresAt", DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column("completedAt", DateTime(timezone=True), nullable=True)
+
+
+class AttachmentUploadChunkRow(Base):
+    __tablename__ = "attachment_upload_chunks"
+    __table_args__ = (
+        CheckConstraint("ordinal >= 0", name="ck_attachment_upload_chunks_ordinal"),
+        CheckConstraint('"byteOffset" >= 0', name="ck_attachment_upload_chunks_byte_offset"),
+        CheckConstraint('"byteSize" > 0', name="ck_attachment_upload_chunks_byte_size"),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_attachment_upload_chunks_sha256"),
+        UniqueConstraint("storageKey", name="uq_attachment_upload_chunks_storage_key"),
+    )
+
+    session_id: Mapped[int] = mapped_column("sessionId", ForeignKey("attachment_upload_sessions.id", ondelete="CASCADE"), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, primary_key=True)
+    byte_offset: Mapped[int] = mapped_column("byteOffset", BigInteger, nullable=False)
+    byte_size: Mapped[int] = mapped_column("byteSize", Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_key: Mapped[str] = mapped_column("storageKey", String(512), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column("verifiedAt", DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
 
 
 DATABASE_URL = get_database_url(required=False)
