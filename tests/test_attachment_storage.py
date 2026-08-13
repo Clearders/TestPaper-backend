@@ -55,3 +55,18 @@ def test_read_rejects_altered_bytes(tmp_path) -> None:
 
     with pytest.raises(AttachmentStorageError, match="hash or size mismatch"):
         storage.read_verified(blob_key, content_hash=_digest(content), byte_size=len(content))
+
+
+def test_delete_is_idempotent_and_never_removes_sibling_blobs(tmp_path) -> None:
+    storage = FilesystemAttachmentStorage(tmp_path)
+    contents = [b"first", b"second"]
+    keys = []
+    for ordinal, content in enumerate(contents):
+        upload_id = f"44444444-4444-4444-8444-44444444444{ordinal}"
+        chunk = storage.chunk_key(upload_id, 0)
+        storage.write_chunk(chunk, content, _digest(content))
+        keys.append(storage.assemble([chunk], content_hash=_digest(content), byte_size=len(content)))
+
+    assert storage.delete(keys[0]) is True
+    assert storage.delete(keys[0]) is False
+    assert storage.read_verified(keys[1], content_hash=_digest(contents[1]), byte_size=len(contents[1])) == contents[1]

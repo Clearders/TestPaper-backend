@@ -30,6 +30,7 @@ from testpaper_backend.schemas import (
     SyncPushResponse,
     UserEntity,
 )
+from testpaper_backend.services.attachment_maintenance import apply_attachment_reference_lifecycle
 from testpaper_backend.time_utils import now_utc
 
 IDEMPOTENCY_RETENTION_DAYS = 90
@@ -201,6 +202,13 @@ def _apply_mutation(
         entity.tombstone = mutation.kind == SyncMutationKind.delete
         entity.deleted_at = now if entity.tombstone else None
         entity.updated_at = now
+
+    apply_attachment_reference_lifecycle(
+        session,
+        entity=entity,
+        mutation_kind=mutation.kind.value,
+        occurred_at=now,
+    )
 
     version = SyncEntityVersionRow(
         entity_id=entity.id,
