@@ -4,7 +4,20 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -279,6 +292,232 @@ class BankSubscriptionRow(Base):
     bank: Mapped[QuestionBankRow] = relationship(back_populates="subscriptions")
     user: Mapped[UserRow] = relationship()
     publication: Mapped[BankPublicationRow | None] = relationship()
+
+
+class SyncEntityRow(Base):
+    __tablename__ = "sync_entities"
+    __table_args__ = (
+        UniqueConstraint("id", "ownerId", name="uq_sync_entities_id_owner"),
+        UniqueConstraint("ownerId", "entityType", "publicId", name="uq_sync_entities_owner_type_public_id"),
+        CheckConstraint(
+            "\"entityType\" IN ('question', 'paper', 'draft', 'attachment', 'comment', 'favorite', 'setting')",
+            name="ck_sync_entities_entity_type",
+        ),
+        CheckConstraint('"schemaVersion" >= 1', name="ck_sync_entities_schema_version"),
+        CheckConstraint('"version" >= 1', name="ck_sync_entities_version"),
+        CheckConstraint('length("contentHash") = 64', name="ck_sync_entities_content_hash"),
+        CheckConstraint(
+            '("tombstone" AND "deletedAt" IS NOT NULL) OR (NOT "tombstone" AND "deletedAt" IS NULL)',
+            name="ck_sync_entities_tombstone_deleted_at",
+        ),
+        Index("ix_sync_entities_owner_scope_updated", "ownerId", "scope", "updatedAt", "id"),
+        Index("ix_sync_entities_owner_type_tombstone", "ownerId", "entityType", "tombstone"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    entity_type: Mapped[str] = mapped_column("entityType", String(32), nullable=False)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column("schemaVersion", Integer, nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_hash: Mapped[str] = mapped_column("contentHash", String(64), nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    tombstone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column("deletedAt", DateTime(timezone=True), nullable=True)
+    versions: Mapped[list[SyncEntityVersionRow]] = relationship(
+        back_populates="entity",
+        cascade="save-update, merge",
+        order_by="SyncEntityVersionRow.version",
+    )
+
+
+class SyncEntityVersionRow(Base):
+    __tablename__ = "sync_entity_versions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["entityId", "ownerId"],
+            ["sync_entities.id", "sync_entities.ownerId"],
+            ondelete="CASCADE",
+            name="fk_sync_entity_versions_entity_owner",
+        ),
+        UniqueConstraint("entityId", "version", name="uq_sync_entity_versions_entity_version"),
+        UniqueConstraint("ownerId", "operationId", name="uq_sync_entity_versions_owner_operation"),
+        CheckConstraint('"version" >= 1', name="ck_sync_entity_versions_version"),
+        CheckConstraint('"schemaVersion" >= 1', name="ck_sync_entity_versions_schema_version"),
+        CheckConstraint('length("contentHash") = 64', name="ck_sync_entity_versions_content_hash"),
+        CheckConstraint(
+            "\"mutationKind\" IN ('create', 'update', 'delete', 'restore')",
+            name="ck_sync_entity_versions_mutation_kind",
+        ),
+        Index("ix_sync_entity_versions_entity_created", "entityId", "createdAt"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_id: Mapped[int] = mapped_column("entityId", BigInteger, nullable=False)
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    schema_version: Mapped[int] = mapped_column("schemaVersion", Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column("contentHash", String(64), nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    tombstone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    mutation_kind: Mapped[str] = mapped_column("mutationKind", String(16), nullable=False)
+    operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    base_version: Mapped[int | None] = mapped_column("baseVersion", BigInteger, nullable=True)
+    base_hash: Mapped[str | None] = mapped_column("baseHash", String(64), nullable=True)
+    device_id: Mapped[str] = mapped_column("deviceId", String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    entity: Mapped[SyncEntityRow] = relationship(back_populates="versions")
+    change: Mapped[SyncChangeLogRow | None] = relationship(back_populates="entity_version", uselist=False)
+
+
+class SyncChangeLogRow(Base):
+    __tablename__ = "sync_change_log"
+    __table_args__ = (
+        UniqueConstraint("entityVersionId", name="uq_sync_change_log_entity_version"),
+        CheckConstraint('"version" >= 1', name="ck_sync_change_log_version"),
+        CheckConstraint('length("contentHash") = 64', name="ck_sync_change_log_content_hash"),
+        Index("ix_sync_change_log_pull", "ownerId", "scope", "sequence"),
+        Index("ix_sync_change_log_compaction", "ownerId", "createdAt", "sequence"),
+    )
+
+    sequence: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_version_id: Mapped[int] = mapped_column(
+        "entityVersionId",
+        ForeignKey("sync_entity_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column("entityType", String(32), nullable=False)
+    public_id: Mapped[str] = mapped_column("publicId", String(36), nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_hash: Mapped[str] = mapped_column("contentHash", String(64), nullable=False)
+    mutation_kind: Mapped[str] = mapped_column("mutationKind", String(16), nullable=False)
+    tombstone: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    entity_version: Mapped[SyncEntityVersionRow] = relationship(back_populates="change")
+
+
+class SyncStreamRow(Base):
+    __tablename__ = "sync_streams"
+    __table_args__ = (
+        CheckConstraint('"retainedFromSequence" >= 0', name="ck_sync_streams_retained_sequence"),
+        CheckConstraint('"snapshotVersion" >= 0', name="ck_sync_streams_snapshot_version"),
+    )
+
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    epoch: Mapped[str] = mapped_column(String(36), nullable=False)
+    retained_from_sequence: Mapped[int] = mapped_column("retainedFromSequence", BigInteger, nullable=False, default=0)
+    snapshot_version: Mapped[int] = mapped_column("snapshotVersion", BigInteger, nullable=False, default=0)
+    compacted_at: Mapped[datetime | None] = mapped_column("compactedAt", DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+
+
+class SyncDeviceCursorRow(Base):
+    __tablename__ = "sync_device_cursors"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["ownerId", "scope"],
+            ["sync_streams.ownerId", "sync_streams.scope"],
+            ondelete="CASCADE",
+            name="fk_sync_device_cursors_stream",
+        ),
+        CheckConstraint('"cursorSequence" >= 0', name="ck_sync_device_cursors_sequence"),
+        CheckConstraint('"protocolVersion" >= 1', name="ck_sync_device_cursors_protocol_version"),
+        Index("ix_sync_device_cursors_expiry", "expiresAt", "revokedAt"),
+        Index("ix_sync_device_cursors_owner_seen", "ownerId", "lastSeenAt"),
+    )
+
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, primary_key=True)
+    device_id: Mapped[str] = mapped_column("deviceId", String(128), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    stream_epoch: Mapped[str] = mapped_column("streamEpoch", String(36), nullable=False)
+    cursor_sequence: Mapped[int] = mapped_column("cursorSequence", BigInteger, nullable=False, default=0)
+    protocol_version: Mapped[int] = mapped_column("protocolVersion", Integer, nullable=False)
+    last_ack_at: Mapped[datetime | None] = mapped_column("lastAckAt", DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column("lastSeenAt", DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column("expiresAt", DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column("revokedAt", DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True), nullable=False)
+
+
+class SyncIdempotencyBatchRow(Base):
+    __tablename__ = "sync_idempotency_batches"
+    __table_args__ = (
+        UniqueConstraint("id", "ownerId", name="uq_sync_batches_id_owner"),
+        UniqueConstraint("ownerId", "deviceId", "idempotencyKey", name="uq_sync_batches_owner_device_key"),
+        CheckConstraint('length("requestHash") = 64', name="ck_sync_batches_request_hash"),
+        CheckConstraint("\"status\" IN ('processing', 'completed', 'failed')", name="ck_sync_batches_status"),
+        CheckConstraint('"protocolVersion" >= 1', name="ck_sync_batches_protocol_version"),
+        CheckConstraint(
+            '("status" = \'processing\' AND "completedAt" IS NULL) OR '
+            "(\"status\" IN ('completed', 'failed') AND \"completedAt\" IS NOT NULL "
+            'AND "responseStatus" IS NOT NULL AND "responsePayload" IS NOT NULL)',
+            name="ck_sync_batches_complete_response",
+        ),
+        Index("ix_sync_batches_expiry", "expiresAt", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column("ownerId", ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id: Mapped[str] = mapped_column("deviceId", String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column("idempotencyKey", String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column("requestHash", String(64), nullable=False)
+    protocol_version: Mapped[int] = mapped_column("protocolVersion", Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_id: Mapped[str] = mapped_column("requestId", String(64), nullable=False)
+    response_status: Mapped[int | None] = mapped_column("responseStatus", Integer, nullable=True)
+    response_payload: Mapped[dict[str, Any] | None] = mapped_column("responsePayload", JSONB, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column("expiresAt", DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True), nullable=False)
+    last_replayed_at: Mapped[datetime] = mapped_column("lastReplayedAt", DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column("completedAt", DateTime(timezone=True), nullable=True)
+    operation_results: Mapped[list[SyncOperationResultRow]] = relationship(
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        order_by="SyncOperationResultRow.ordinal",
+    )
+
+
+class SyncOperationResultRow(Base):
+    __tablename__ = "sync_operation_results"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["batchId", "ownerId"],
+            ["sync_idempotency_batches.id", "sync_idempotency_batches.ownerId"],
+            ondelete="CASCADE",
+            name="fk_sync_operation_results_batch_owner",
+        ),
+        UniqueConstraint("batchId", "ordinal", name="uq_sync_operation_results_batch_ordinal"),
+        UniqueConstraint("ownerId", "operationId", name="uq_sync_operation_results_owner_operation"),
+        CheckConstraint('"ordinal" >= 0', name="ck_sync_operation_results_ordinal"),
+        CheckConstraint(
+            "\"status\" IN ('applied', 'noop', 'conflict', 'rejected', 'dependency_failed')",
+            name="ck_sync_operation_results_status",
+        ),
+        Index("ix_sync_operation_results_operation", "operationId"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column("batchId", BigInteger, nullable=False)
+    owner_id: Mapped[int] = mapped_column("ownerId", Integer, nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation_id: Mapped[str] = mapped_column("operationId", String(36), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    entity_type: Mapped[str | None] = mapped_column("entityType", String(32), nullable=True)
+    public_id: Mapped[str | None] = mapped_column("publicId", String(36), nullable=True)
+    accepted_version: Mapped[int | None] = mapped_column("acceptedVersion", BigInteger, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column("contentHash", String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column("errorCode", String(64), nullable=True)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    batch: Mapped[SyncIdempotencyBatchRow] = relationship(back_populates="operation_results")
 
 
 DATABASE_URL = get_database_url(required=False)

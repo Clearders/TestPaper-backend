@@ -67,6 +67,13 @@ def main() -> None:
             "question_corrections",
             "question_revisions",
             "questions",
+            "sync_change_log",
+            "sync_device_cursors",
+            "sync_entities",
+            "sync_entity_versions",
+            "sync_idempotency_batches",
+            "sync_operation_results",
+            "sync_streams",
             "users",
         }
         with test_engine.connect() as connection:
@@ -75,6 +82,29 @@ def main() -> None:
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == head_revision
             assert connection.scalar(text("SELECT COUNT(*) FROM users")) == 0
             assert connection.scalar(text("SELECT COUNT(*) FROM questions")) == 10
+
+            connection.execute(text("SET enable_seqscan = off"))
+            pull_plan = "\n".join(
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "EXPLAIN (COSTS OFF) SELECT sequence FROM sync_change_log "
+                        "WHERE \"ownerId\" = 1 AND scope = 'personal' AND sequence > 0 "
+                        "ORDER BY sequence LIMIT 100"
+                    )
+                )
+            )
+            assert "ix_sync_change_log_pull" in pull_plan, pull_plan
+            replay_plan = "\n".join(
+                row[0]
+                for row in connection.execute(
+                    text(
+                        'EXPLAIN (COSTS OFF) SELECT id FROM sync_idempotency_batches WHERE "ownerId" = 1 '
+                        "AND \"deviceId\" = 'device-1' AND \"idempotencyKey\" = 'key-1'"
+                    )
+                )
+            )
+            assert "uq_sync_batches_owner_device_key" in replay_plan, replay_plan
 
         test_engine.dispose()
         test_engine = None
