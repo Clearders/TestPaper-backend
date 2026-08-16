@@ -1,0 +1,59 @@
+name: Sync Release Gate
+
+on:
+  workflow_call:
+    inputs:
+      latency-p95-ms:
+        required: true
+        type: number
+      failure-ratio:
+        required: true
+        type: number
+      conflict-ratio:
+        required: true
+        type: number
+      queue-backlog:
+        required: true
+        type: number
+  workflow_dispatch:
+    inputs:
+      latency-p95-ms:
+        description: 15-minute staging/canary sync cycle p95 latency in milliseconds
+        required: true
+        type: number
+      failure-ratio:
+        description: 15-minute sync operation failure ratio
+        required: true
+        type: number
+      conflict-ratio:
+        description: 15-minute mutation conflict ratio
+        required: true
+        type: number
+      queue-backlog:
+        description: Maximum pending operation backlog in the observation window
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-sync-slos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Enforce frozen M4 sync thresholds
+        env:
+          SYNC_SLO_LATENCY_P95_MS: ${{ inputs.latency-p95-ms }}
+          SYNC_SLO_FAILURE_RATIO: ${{ inputs.failure-ratio }}
+          SYNC_SLO_CONFLICT_RATIO: ${{ inputs.conflict-ratio }}
+          SYNC_SLO_QUEUE_BACKLOG: ${{ inputs.queue-backlog }}
+        run: python scripts/check_sync_assurance.py --release-from-environment

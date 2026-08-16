@@ -1,7 +1,7 @@
 """hash opaque auth tokens and add refresh-family revocation state
 
 Revision ID: 20260809_0019
-Revises: 20260809_0018
+Revises: 20260813_0025
 Create Date: 2026-08-09
 """
 
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260809_0019"
-down_revision: str | None = "20260809_0018"
+down_revision: str | None = "20260813_0025"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -34,9 +34,7 @@ def upgrade() -> None:
     # copied to a new table or logged. Existing clients continue presenting the
     # raw token while application lookups hash it before querying.
     connection = op.get_bind()
-    rows = connection.execute(
-        sa.text('SELECT token, "tokenType", "refreshTokenId" FROM auth_tokens')
-    ).fetchall()
+    rows = connection.execute(sa.text('SELECT token, "tokenType", "refreshTokenId" FROM auth_tokens')).fetchall()
     for raw_token, token_type, raw_refresh_token in rows:
         family_source = raw_refresh_token or raw_token
         family_id = None if token_type == "session" else f"legacy-{_digest(family_source)[:32]}"

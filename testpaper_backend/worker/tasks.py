@@ -225,3 +225,13 @@ def cleanup_expired_sessions_task(self: BaseTask) -> dict[str, Any]:
         return {"deleted": result, "timestamp": now.isoformat()}
     finally:
         session.close()
+
+
+@shared_task(name="cleanup_attachments", bind=True, base=BaseTask)
+def cleanup_attachments_task(self: BaseTask) -> dict[str, Any]:
+    """Reclaim only expired uploads and blobs beyond their retention gate."""
+    from dataclasses import asdict
+
+    from testpaper_backend.services.attachment_maintenance import run_attachment_maintenance
+
+    return asdict(run_attachment_maintenance())

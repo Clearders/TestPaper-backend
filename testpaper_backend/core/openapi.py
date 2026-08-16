@@ -11,7 +11,7 @@ from pydantic import TypeAdapter
 from testpaper_backend.schemas.common import ErrorEnvelope
 from testpaper_backend.schemas.realtime import CLIENT_MESSAGE_ADAPTER, SERVER_MESSAGE_ADAPTER
 
-API_CONTRACT_VERSION = "1.1.0"
+API_CONTRACT_VERSION = "1.2.0"
 API_CONTRACT_TITLE = "TestPaper Backend"
 OPENAPI_VERSION = "3.1.0"
 
@@ -95,6 +95,8 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 operation["security"] = [{"cookieAuth": [], "csrfToken": []}]
             elif anonymous:
                 operation["security"] = []
+            elif path.startswith("/api/v1/sync/"):
+                operation["security"] = [{"bearerAuth": []}]
             elif method in unsafe_methods:
                 operation["security"] = [
                     {"cookieAuth": [], "csrfToken": []},
@@ -110,6 +112,17 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 responses.setdefault("404", _error_response("The requested resource was not found."))
             if method in unsafe_methods:
                 responses.setdefault("429", _error_response("The write rate limit was exceeded."))
+            if path.startswith("/api/v1/sync/"):
+                responses.setdefault("400", _error_response("The sync cursor or request is invalid."))
+                responses.setdefault("410", _error_response("The sync cursor or snapshot has expired."))
+                responses.setdefault("426", _error_response("The requested sync protocol version is unsupported."))
+            if path == "/api/v1/sync/push":
+                responses.setdefault("409", _error_response("The idempotency key or entity base version conflicts."))
+                responses.setdefault("413", _error_response("The sync batch exceeds the operation limit."))
+            if path.startswith("/api/v1/sync/attachments/"):
+                responses.setdefault("409", _error_response("The upload state, digest, or attachment version conflicts."))
+            if "/chunks/" in path:
+                responses.setdefault("413", _error_response("The attachment chunk exceeds the size limit."))
             if path.startswith("/api/v1/drafts/") and method == "patch":
                 responses.setdefault("409", _error_response("The draft revision conflicts with the current server revision."))
             if path.startswith("/api/v1/banks/") and method == "post" and path.endswith("/items"):

@@ -18,6 +18,7 @@ from testpaper_backend.config import (
     get_cors_origins,
     get_image_upload_dir,
     get_object_storage_settings,
+    get_sync_cursor_secret,
     get_trusted_hosts,
     validate_configuration,
 )
@@ -73,6 +74,19 @@ def test_staging_rejects_wildcard_origins_and_hosts(monkeypatch: pytest.MonkeyPa
         get_cors_origins()
     with pytest.raises(RuntimeError, match="staging or production"):
         get_trusted_hosts()
+
+
+def test_cursor_signing_secret_is_strict_in_deployed_environments(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TESTPAPERS_ENV", "production")
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("SYNC_CURSOR_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="SYNC_CURSOR_SECRET is required"):
+        get_sync_cursor_secret()
+    monkeypatch.setenv("SYNC_CURSOR_SECRET", "short")
+    with pytest.raises(RuntimeError, match="at least 32"):
+        get_sync_cursor_secret()
+    monkeypatch.setenv("SYNC_CURSOR_SECRET", "production-cursor-secret-with-32-characters")
+    assert get_sync_cursor_secret().startswith("production-cursor")
 
 
 def test_object_storage_is_all_or_none(monkeypatch: pytest.MonkeyPatch) -> None:

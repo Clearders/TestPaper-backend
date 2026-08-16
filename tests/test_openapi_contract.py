@@ -37,6 +37,51 @@ def test_contract_declares_cookie_csrf_and_bearer_boundaries() -> None:
         {"cookieAuth": [], "csrfToken": []},
         {"bearerAuth": []},
     ]
+    assert contract["paths"]["/api/v1/sync/push"]["post"]["security"] == [{"bearerAuth": []}]
+
+
+def test_sync_push_publishes_contract_1_2_and_stable_error_responses() -> None:
+    contract = app.openapi()
+    operation = contract["paths"]["/api/v1/sync/push"]["post"]
+
+    assert contract["info"]["version"] == "1.2.0"
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/SyncPushRequest"}
+    assert {"409", "413", "426"} <= set(operation["responses"])
+    for status_code in ("409", "413", "426"):
+        assert operation["responses"][status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorEnvelope"
+        }
+
+
+def test_sync_read_endpoints_are_bearer_only_and_publish_recovery_errors() -> None:
+    contract = app.openapi()
+    for path, method in (
+        ("/api/v1/sync/pull", "get"),
+        ("/api/v1/sync/ack", "post"),
+        ("/api/v1/sync/snapshot", "get"),
+    ):
+        operation = contract["paths"][path][method]
+        assert operation["security"] == [{"bearerAuth": []}]
+        assert {"400", "410", "426"} <= set(operation["responses"])
+
+
+def test_attachment_transfer_contract_is_bearer_only_and_documents_verified_bytes() -> None:
+    contract = app.openapi()
+    paths = contract["paths"]
+    for path, method in (
+        ("/api/v1/sync/attachments/uploads", "post"),
+        ("/api/v1/sync/attachments/uploads/{upload_id}", "get"),
+        ("/api/v1/sync/attachments/uploads/{upload_id}/chunks/{ordinal}", "put"),
+        ("/api/v1/sync/attachments/uploads/{upload_id}/complete", "post"),
+        ("/api/v1/sync/attachments/{attachment_id}/content", "get"),
+    ):
+        assert paths[path][method]["security"] == [{"bearerAuth": []}]
+        assert {"409", "410", "426"} <= set(paths[path][method]["responses"])
+    chunk = paths["/api/v1/sync/attachments/uploads/{upload_id}/chunks/{ordinal}"]["put"]
+    assert "413" in chunk["responses"]
+    download = paths["/api/v1/sync/attachments/{attachment_id}/content"]["get"]["responses"]["200"]
+    assert set(download["content"]) == {"application/octet-stream"}
+    assert {"Content-Disposition", "ETag", "X-Content-SHA256"} <= set(download["headers"])
 
 
 def test_binary_downloads_do_not_claim_to_return_json() -> None:
