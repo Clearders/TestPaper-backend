@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from datetime import timedelta
 from typing import cast
 
 from argon2 import PasswordHasher
@@ -11,9 +12,16 @@ from fastapi import Depends, HTTPException, Request, status
 from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.db import AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ROLE_PERMISSIONS, Permission, TokenType, UserEntity, UserRole
+from testpaper_backend.services.rate_limit import get_client_ip
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
 _ph = PasswordHasher()
+TOKEN_ACTIVITY_WRITE_INTERVAL = timedelta(minutes=5)
+
+
+def token_digest(token: str) -> str:
+    """Return the irreversible database lookup key for an opaque bearer secret."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def password_hash(password: str) -> str:
@@ -86,28 +94,42 @@ def get_request_token(request: Request) -> str | None:
     return request.cookies.get(get_auth_cookie_name())
 
 
-def get_user_from_token(token: str | None) -> UserEntity:
+def get_session_cookie_token(request: Request) -> str | None:
+    """Read only the browser session cookie, never a Bearer credential."""
+    return request.cookies.get(get_auth_cookie_name())
+
+
+def get_user_from_token(token: str | None, ip_address: str | None = None) -> UserEntity:
     if not token:
         raise auth_error()
 
     with SessionLocal() as session:
-        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token_digest(token)))
         if token_row is None:
             raise auth_error("INVALID_TOKEN", "Invalid or expired token")
+        if token_row.revoked_at is not None:
+            raise auth_error("INVALID_TOKEN", "Token has been revoked")
         if token_row.token_type == TokenType.refresh.value:
             raise auth_error("INVALID_TOKEN", "Refresh token cannot be used as an access credential")
-        if as_aware_utc(token_row.expires_at) <= now_utc():
+        now = now_utc()
+        if as_aware_utc(token_row.expires_at) <= now:
             session.delete(token_row)
             session.commit()
             raise auth_error("TOKEN_EXPIRED", "Token has expired")
         user_row = cast(UserRow | None, session.get(UserRow, token_row.user_id))
         if user_row is None or not user_row.is_active:
             raise auth_error("ACCOUNT_DISABLED", "Account is disabled")
+        last_seen_at = token_row.last_seen_at
+        if last_seen_at is None or as_aware_utc(last_seen_at) <= now - TOKEN_ACTIVITY_WRITE_INTERVAL:
+            token_row.last_seen_at = now
+            if ip_address:
+                token_row.ip_address = ip_address
+            session.commit()
         return user_row_to_entity(user_row)
 
 
 def get_current_user(request: Request) -> UserEntity:
-    return get_user_from_token(get_request_token(request))
+    return get_user_from_token(get_request_token(request), get_client_ip(request))
 
 
 CurrentUserDependency = Depends(get_current_user)
@@ -116,7 +138,7 @@ CurrentUserDependency = Depends(get_current_user)
 def get_current_sync_device(request: Request, current_user: UserEntity = CurrentUserDependency) -> str:
     token = get_request_token(request)
     with SessionLocal() as session:
-        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token_digest(token)))
         if (
             token_row is None
             or token_row.user_id != current_user.id
@@ -131,7 +153,7 @@ def get_current_conflict_actor(request: Request, current_user: UserEntity = Curr
     """Return an auditable device/session identity without exposing the credential."""
     token = get_request_token(request)
     with SessionLocal() as session:
-        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token))
+        token_row = cast(AuthTokenRow | None, session.get(AuthTokenRow, token_digest(token)))
         if token_row is None or token_row.user_id != current_user.id:
             raise auth_error()
         if token_row.token_type == TokenType.access.value and token_row.device_id:

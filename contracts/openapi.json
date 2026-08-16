@@ -7052,9 +7052,6 @@
           {
             "cookieAuth": [],
             "csrfToken": []
-          },
-          {
-            "bearerAuth": []
           }
         ],
         "summary": "Refresh Session",
@@ -7149,26 +7146,6 @@
             },
             "description": "Successful Response"
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Authentication is required."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "The caller is not allowed to perform this operation."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -7200,15 +7177,7 @@
             "description": "Unexpected server error."
           }
         },
-        "security": [
-          {
-            "cookieAuth": [],
-            "csrfToken": []
-          },
-          {
-            "bearerAuth": []
-          }
-        ],
+        "security": [],
         "summary": "Native Login",
         "tags": [
           "auth"
@@ -7239,26 +7208,6 @@
             },
             "description": "Successful Response"
           },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "Authentication is required."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            },
-            "description": "The caller is not allowed to perform this operation."
-          },
           "422": {
             "content": {
               "application/json": {
@@ -7290,15 +7239,7 @@
             "description": "Unexpected server error."
           }
         },
-        "security": [
-          {
-            "cookieAuth": [],
-            "csrfToken": []
-          },
-          {
-            "bearerAuth": []
-          }
-        ],
+        "security": [],
         "summary": "Native Refresh",
         "tags": [
           "auth"

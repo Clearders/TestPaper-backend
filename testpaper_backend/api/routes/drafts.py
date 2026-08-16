@@ -125,7 +125,12 @@ def create_draft(
     _: RateLimitWriteDep,
 ):
     detail = create_shared_draft(payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        detail.publicId,
+        "draft.updated",
+        _draft_event_payload(detail, current_user.id),
+    )
     logger.info("Shared draft created: %s", detail.publicId)
     return envelope(detail.model_dump(mode="json"), request)
 
@@ -147,14 +152,24 @@ def update_draft(
 ):
     detail = update_shared_draft(draft_public_id, payload, current_user)
     event_name = "draft.review.updated" if payload.reviewStatus is not None else "draft.updated"
-    background_tasks.add_task(realtime.broadcast, event_name, _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        event_name,
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 
 @router.delete("/{draft_public_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_draft(background_tasks: BackgroundTasks, draft_public_id: str, current_user: PapersReadDep, _: RateLimitWriteDep):
     delete_shared_draft(draft_public_id, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.deleted", _draft_deleted_event_payload(draft_public_id, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.deleted",
+        _draft_deleted_event_payload(draft_public_id, current_user.id),
+    )
     logger.info("Shared draft deleted: %s", draft_public_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -169,7 +184,12 @@ def create_or_update_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = upsert_draft_collaborator(draft_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.collaborators.updated",
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -184,7 +204,12 @@ def patch_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = update_draft_collaborator(draft_public_id, user_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.collaborators.updated",
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -198,7 +223,13 @@ def remove_collaborator(
     _: RateLimitWriteDep,
 ):
     detail = delete_draft_collaborator(draft_public_id, user_public_id, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.collaborators.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(realtime.evict_user_from_draft, draft_public_id, user_public_id)
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.collaborators.updated",
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -212,7 +243,12 @@ def create_comment(
     _: RateLimitWriteDep,
 ):
     detail = create_draft_comment(draft_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.comment.created", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.comment.created",
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 
@@ -227,7 +263,12 @@ def patch_comment(
     _: RateLimitWriteDep,
 ):
     detail = update_draft_comment(draft_public_id, comment_public_id, payload, current_user)
-    background_tasks.add_task(realtime.broadcast, "draft.comment.updated", _draft_event_payload(detail, current_user.id))
+    background_tasks.add_task(
+        realtime.broadcast_to_draft,
+        draft_public_id,
+        "draft.comment.updated",
+        _draft_event_payload(detail, current_user.id),
+    )
     return envelope(detail.model_dump(mode="json"), request)
 
 

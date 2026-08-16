@@ -10,6 +10,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from testpaper_backend.config import (
     get_auth_cookie_domain,
+    get_auth_cookie_name,
     get_auth_cookie_samesite,
     get_auth_cookie_secure,
     get_csrf_cookie_name,
@@ -77,7 +78,8 @@ def _is_csrf_exempt(path: str) -> bool:
 
 def _uses_bearer_auth(request: Request) -> bool:
     scheme, separator, token = request.headers.get("authorization", "").partition(" ")
-    return separator == " " and scheme.lower() == "bearer" and bool(token.strip())
+    has_bearer = separator == " " and scheme.lower() == "bearer" and bool(token.strip())
+    return has_bearer and not request.cookies.get(get_auth_cookie_name())
 
 
 class CSRFMiddleware:

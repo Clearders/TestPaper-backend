@@ -58,6 +58,8 @@ class AuthTokenRow(Base):
     user_agent: Mapped[str | None] = mapped_column("userAgent", String(512), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column("lastSeenAt", DateTime(timezone=True), nullable=True)
     refresh_token_id: Mapped[str | None] = mapped_column("refreshTokenId", String(128), nullable=True, index=True)
+    family_id: Mapped[str | None] = mapped_column("familyId", String(64), nullable=True, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column("revokedAt", DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     user: Mapped[UserRow] = relationship(back_populates="tokens")

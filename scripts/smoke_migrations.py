@@ -998,6 +998,41 @@ def main() -> None:
             )
             assert "uq_sync_batches_owner_device_key" in replay_plan, replay_plan
 
+        # Exercise the security migration with an existing plaintext token, not
+        # only against a fresh empty auth_tokens table.
+        test_engine.dispose()
+        test_engine = None
+        alembic("downgrade", "20260813_0025")
+        test_engine = create_engine(test_url)
+        with test_engine.begin() as connection:
+            user_id = connection.scalar(
+                text(
+                    'INSERT INTO users ("publicId", username, "displayName", "passwordHash", role, "isActive", created_at, updated_at) '
+                    "VALUES ('migration-user', 'migration-user', 'Migration user', 'not-used', 'viewer', true, now(), now()) "
+                    "RETURNING id"
+                )
+            )
+            connection.execute(
+                text(
+                    'INSERT INTO auth_tokens (token, "user_id", "tokenType", "deviceId", "lastSeenAt", created_at, expires_at) '
+                    "VALUES (:token, :user_id, 'refresh', 'migration-device', now(), now(), now() + interval '1 day')"
+                ),
+                {"token": "migration-raw-refresh", "user_id": user_id},
+            )
+        test_engine.dispose()
+        test_engine = None
+        alembic("upgrade", "head")
+        test_engine = create_engine(test_url)
+        expected_digest = hashlib.sha256(b"migration-raw-refresh").hexdigest()
+        with test_engine.connect() as connection:
+            migrated = connection.execute(
+                text('SELECT token, "familyId", "revokedAt" FROM auth_tokens WHERE "deviceId" = :device_id'),
+                {"device_id": "migration-device"},
+            ).one()
+            assert migrated.token == expected_digest
+            assert migrated.familyId == f"legacy-{expected_digest[:32]}"
+            assert migrated.revokedAt is None
+
         owner_id = exercise_sync_push(test_engine)
         exercise_conflict_model(test_engine, owner_id)
         exercise_attachment_model(test_engine, owner_id)
@@ -1024,7 +1059,7 @@ def main() -> None:
             "head": head_revision,
             "seedQuestions": 10,
             "seedUsers": 0,
-            "workflow": ["upgrade head", "downgrade base", "upgrade head"],
+            "workflow": ["upgrade head", "downgrade 0025", "upgrade head", "downgrade base", "upgrade head"],
         }
         write_diagnostics(report)
         print(f"Migration smoke test passed upgrade -> base -> upgrade at {head_revision} ({database_name})")
@@ -1034,7 +1069,7 @@ def main() -> None:
                 "database": database_name,
                 "error": f"{type(error).__name__}: {error}",
                 "head": head_revision,
-                "workflow": ["upgrade head", "downgrade base", "upgrade head"],
+                "workflow": ["upgrade head", "downgrade 0025", "upgrade head", "downgrade base", "upgrade head"],
             }
         )
         raise

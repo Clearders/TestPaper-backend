@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from testpaper_backend.db import (
@@ -129,12 +129,57 @@ def _user_subscription(row: QuestionBankRow, current_user: UserEntity) -> BankSu
     return next((subscription for subscription in row.subscriptions if subscription.user_id == current_user.id), None)
 
 
+def _readable_publication(row: QuestionBankRow, current_user: UserEntity) -> BankPublicationRow | None:
+    active = _active_publication(row)
+    if (
+        active is not None
+        and row.visibility == BankVisibility.public.value
+        and _publication_visibility(active) == BankVisibility.public.value
+    ):
+        return active
+    subscription = _user_subscription(row, current_user)
+    return subscription.publication if subscription is not None else None
+
+
+def _can_read_publication(row: QuestionBankRow, publication: BankPublicationRow, current_user: UserEntity) -> bool:
+    if bank_access_role(row, current_user) is not None:
+        return True
+    readable = _readable_publication(row, current_user)
+    return readable is not None and readable.id == publication.id
+
+
 def _summary_from_row(row: QuestionBankRow, current_user: UserEntity) -> QuestionBankSummary:
-    role = _ensure_read_access(row, current_user)
+    role = bank_access_role(row, current_user)
     active_publication = _active_publication(row)
     subscription = _user_subscription(row, current_user)
     subscribed_version = subscription.publication.version if subscription and subscription.publication else None
     active_version = active_publication.version if active_publication else None
+    if role is None:
+        publication = _readable_publication(row, current_user)
+        if publication is None:
+            raise _not_found()
+        state = publication.state or {}
+        bank_state = state.get("bank") if isinstance(state.get("bank"), dict) else {}
+        items = state.get("items") if isinstance(state.get("items"), list) else []
+        snapshot_visibility = _publication_visibility(publication) or BankVisibility.private.value
+        return QuestionBankSummary(
+            id=row.id,
+            publicId=row.public_id,
+            name=str(bank_state.get("name") or row.name),
+            description=str(bank_state.get("description") or row.description),
+            visibility=BankVisibility(snapshot_visibility),
+            owner=bank_user_ref(row.owner),
+            accessRole=BankAccessRole.viewer,
+            version=publication.version,
+            itemCount=len(items),
+            memberCount=0,
+            subscriberCount=len(row.subscriptions),
+            isSubscribed=subscription is not None,
+            subscribedVersion=subscribed_version,
+            hasUpdate=bool(subscription is not None and active_version is not None and (subscribed_version or 0) < active_version),
+            createdAt=publication.created_at,
+            updatedAt=publication.created_at,
+        )
     return QuestionBankSummary(
         id=row.id,
         publicId=row.public_id,
@@ -157,9 +202,14 @@ def _summary_from_row(row: QuestionBankRow, current_user: UserEntity) -> Questio
 
 def _detail_from_row(row: QuestionBankRow, current_user: UserEntity) -> QuestionBankEntity:
     summary = _summary_from_row(row, current_user)
+    members = (
+        [_member_from_row(item) for item in sorted(row.members, key=lambda item: item.created_at)]
+        if bank_access_role(row, current_user) is not None
+        else []
+    )
     return QuestionBankEntity(
         **summary.model_dump(),
-        members=[_member_from_row(item) for item in sorted(row.members, key=lambda item: item.created_at)],
+        members=members,
     )
 
 
@@ -187,7 +237,7 @@ def _ensure_read_access(bank: QuestionBankRow, current_user: UserEntity) -> Bank
     role = bank_access_role(bank, current_user)
     if role is not None:
         return role
-    if bank.visibility == BankVisibility.public.value:
+    if _readable_publication(bank, current_user) is not None:
         return BankAccessRole.viewer
     raise _not_found()
 
@@ -248,8 +298,12 @@ def list_visible_banks(
             statement = statement.where(
                 or_(
                     QuestionBankRow.owner_id == current_user.id,
-                    QuestionBankRow.visibility == BankVisibility.public.value,
                     QuestionBankRow.members.any(QuestionBankMemberRow.user_id == current_user.id),
+                    QuestionBankRow.subscriptions.any(BankSubscriptionRow.user_id == current_user.id),
+                    and_(
+                        QuestionBankRow.visibility == BankVisibility.public.value,
+                        QuestionBankRow.publications.any(BankPublicationRow.withdrawn_at.is_(None)),
+                    ),
                 )
             )
         if visibility is not None:
@@ -418,10 +472,33 @@ def remove_bank_item(bank_public_id: str, question_public_id: str, current_user:
 def list_bank_questions(bank_public_id: str, current_user: UserEntity) -> list[QuestionEntity]:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id)
-        _ensure_read_access(row, current_user)
+        role = bank_access_role(row, current_user)
         include_answers = _can_include_answers(current_user)
-        items = sorted(row.items, key=lambda item: item.created_at)
-        return [_question_entity(item.question, include_answers=include_answers) for item in items]
+        if role is not None:
+            items = sorted(row.items, key=lambda item: item.created_at)
+            return [_question_entity(item.question, include_answers=include_answers) for item in items]
+        publication = _readable_publication(row, current_user)
+        if publication is None:
+            raise _not_found()
+        snapshot = redact_bank_snapshot_answers(publication.state or {}, include_answers=include_answers)
+        questions: list[QuestionEntity] = []
+        for index, item in enumerate(snapshot.get("items") or []):
+            if not isinstance(item, dict) or not isinstance(item.get("data"), dict):
+                continue
+            public_id = item.get("publicId")
+            if not isinstance(public_id, str):
+                continue
+            base = QuestionBase(**{key: value for key, value in item["data"].items() if key in QuestionBase.model_fields})
+            questions.append(
+                QuestionEntity(
+                    **base.model_dump(),
+                    id=-(index + 1),
+                    publicId=public_id,
+                    createdAt=publication.created_at,
+                    updatedAt=publication.created_at,
+                )
+            )
+        return questions
 
 
 def add_bank_member(bank_public_id: str, payload: BankMemberCreate, current_user: UserEntity) -> QuestionBankEntity:
@@ -594,15 +671,15 @@ def list_bank_versions(bank_public_id: str, current_user: UserEntity) -> list[Ba
                 isActive=publication.withdrawn_at is None,
             )
             for publication in row.publications
+            if _can_read_publication(row, publication, current_user)
         ]
 
 
 def get_bank_version(bank_public_id: str, version: int, current_user: UserEntity) -> BankPublicationEntity:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id)
-        _ensure_read_access(row, current_user)
         publication = next((item for item in row.publications if item.version == version), None)
-        if publication is None:
+        if publication is None or not _can_read_publication(row, publication, current_user):
             raise _not_found_error("BANK_VERSION_NOT_FOUND", f"Bank version {version} not found")
         return BankPublicationEntity(
             id=publication.id,
@@ -629,12 +706,13 @@ def _subscription_entity(subscription: BankSubscriptionRow) -> BankSubscriptionE
 def subscribe_bank(bank_public_id: str, current_user: UserEntity) -> BankSubscriptionEntity:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id)
-        _ensure_read_access(row, current_user)
-        if row.visibility == BankVisibility.private.value:
-            raise _validation_error("BANK_SUBSCRIBE_PRIVATE", "Private banks cannot be subscribed")
         publication = _active_publication(row)
+        if row.visibility != BankVisibility.public.value:
+            raise _validation_error("BANK_SUBSCRIBE_PRIVATE", "Private banks cannot be subscribed")
         if publication is None:
             raise _conflict("BANK_NOT_PUBLISHED", "The bank has no active published version")
+        if _publication_visibility(publication) != BankVisibility.public.value:
+            raise _not_found()
         existing = next((item for item in row.subscriptions if item.user_id == current_user.id), None)
         if existing is not None:
             return _subscription_entity(existing)
@@ -659,7 +737,6 @@ def update_subscription(
 ) -> BankSubscriptionEntity:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id, for_update=True)
-        _ensure_read_access(row, current_user)
         subscription = _user_subscription(row, current_user)
         if subscription is None:
             raise _not_found_error("BANK_SUBSCRIPTION_NOT_FOUND", "Bank subscription not found")
@@ -680,7 +757,6 @@ def update_subscription(
 def unsubscribe_bank(bank_public_id: str, current_user: UserEntity) -> None:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id)
-        _ensure_read_access(row, current_user)
         existing = next((item for item in row.subscriptions if item.user_id == current_user.id), None)
         if existing is not None:
             session.delete(existing)
@@ -706,13 +782,12 @@ def _question_from_snapshot(data: dict[str, Any], current_user: UserEntity, crea
 def fork_bank(bank_public_id: str, payload: BankForkRequest, current_user: UserEntity) -> QuestionBankEntity:
     with SessionLocal() as session:
         row = _get_bank_row(session, bank_public_id)
-        _ensure_read_access(row, current_user)
         active_publication = _active_publication(row)
         if active_publication is None and payload.version is None:
             raise _conflict("BANK_NOT_PUBLISHED", "The bank has no published version to fork")
         version = payload.version if payload.version is not None else cast(BankPublicationRow, active_publication).version
         publication = next((item for item in row.publications if item.version == version), None)
-        if publication is None:
+        if publication is None or not _can_read_publication(row, publication, current_user):
             raise _not_found_error("BANK_VERSION_NOT_FOUND", f"Bank version {version} not found")
         snapshot = load_bank_snapshot(publication, current_user)
         now = now_utc()

@@ -28,6 +28,11 @@ def test_contract_declares_cookie_csrf_and_bearer_boundaries() -> None:
     assert schemes["csrfToken"]["name"] == "X-CSRF-Token"
     assert schemes["bearerAuth"]["scheme"] == "bearer"
     assert contract["paths"]["/api/v1/auth/login"]["post"]["security"] == []
+    assert contract["paths"]["/api/v1/auth/token"]["post"]["security"] == []
+    assert contract["paths"]["/api/v1/auth/token/refresh"]["post"]["security"] == []
+    assert contract["paths"]["/api/v1/auth/refresh"]["post"]["security"] == [
+        {"cookieAuth": [], "csrfToken": []},
+    ]
     assert contract["paths"]["/api/v1/papers"]["post"]["security"] == [
         {"cookieAuth": [], "csrfToken": []},
         {"bearerAuth": []},

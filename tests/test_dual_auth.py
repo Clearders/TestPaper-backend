@@ -10,7 +10,12 @@ from pydantic import ValidationError
 from testpaper_backend.api.routes import auth as auth_routes
 from testpaper_backend.db import AuthAuditLogRow, AuthTokenRow, UserRow
 from testpaper_backend.schemas import NativeLoginRequest, PasswordChange, RefreshTokenRequest, TokenPair
-from testpaper_backend.security import get_current_conflict_actor, get_current_sync_device, get_user_from_token
+from testpaper_backend.security import (
+    get_current_conflict_actor,
+    get_current_sync_device,
+    get_user_from_token,
+    token_digest,
+)
 from testpaper_backend.services import auth_sessions, profiles
 from testpaper_backend.services.auth_sessions import DeviceInfo
 
@@ -44,10 +49,12 @@ def _token_row(
     user_agent: str | None = None,
     last_seen_at: datetime | None = None,
     refresh_token_id: str | None = None,
+    family_id: str | None = "family-1",
+    revoked_at: datetime | None = None,
     created_at: datetime | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        token=token,
+        token=token_digest(token),
         user_id=user_id,
         token_type=token_type,
         expires_at=expires_at or NOW + timedelta(days=365),
@@ -56,18 +63,22 @@ def _token_row(
         ip_address=ip_address,
         user_agent=user_agent,
         last_seen_at=last_seen_at,
-        refresh_token_id=refresh_token_id,
+        refresh_token_id=token_digest(refresh_token_id) if refresh_token_id else None,
+        family_id=family_id,
+        revoked_at=revoked_at,
         created_at=created_at or NOW,
     )
 
 
 class FakeSession:
     def __init__(self, token_rows: dict[str, SimpleNamespace] | None = None, user_row: SimpleNamespace | None = None):
-        self.token_rows = dict(token_rows or {})
+        self.token_rows = {row.token: row for row in (token_rows or {}).values()}
         self.user_row = user_row
         self.added: list[object] = []
         self.deleted: list[object] = []
         self.executed: list[object] = []
+        self.scalar_results: list[object | None] = []
+        self.commit_count = 0
 
     def __enter__(self):
         return self
@@ -90,12 +101,14 @@ class FakeSession:
 
     def execute(self, statement):
         self.executed.append(statement)
+        result = self.scalar_results.pop(0) if self.scalar_results else None
+        return SimpleNamespace(scalar_one_or_none=lambda: result)
 
     def flush(self):
         pass
 
     def commit(self):
-        pass
+        self.commit_count += 1
 
     def refresh(self, row):
         pass
@@ -108,6 +121,7 @@ def _request(path: str = "/api/v1/auth/token") -> SimpleNamespace:
     request = SimpleNamespace()
     request.state = SimpleNamespace(request_id="test-request")
     request.headers = {}
+    request.cookies = {}
     request.client = SimpleNamespace(host="127.0.0.1")
     request.method = "POST"
     request.url = SimpleNamespace(path=path)
@@ -137,6 +151,23 @@ def test_access_and_session_tokens_are_valid_access_credentials(monkeypatch) -> 
 
         assert user.id == 1
         assert user.username == "user1"
+
+
+def test_access_activity_updates_last_seen_and_ip_with_throttling(monkeypatch) -> None:
+    row = _token_row("access-1", token_type="access", last_seen_at=NOW - timedelta(minutes=6), ip_address="old")
+    session = FakeSession({"access-1": row}, _user_row())
+    monkeypatch.setattr("testpaper_backend.security.SessionLocal", lambda: session)
+    monkeypatch.setattr("testpaper_backend.security.now_utc", lambda: NOW)
+
+    get_user_from_token("access-1", "203.0.113.7")
+
+    assert row.last_seen_at == NOW
+    assert row.ip_address == "203.0.113.7"
+    assert session.commit_count == 1
+
+    get_user_from_token("access-1", "203.0.113.8")
+    assert row.ip_address == "203.0.113.7"
+    assert session.commit_count == 1
 
 
 def test_sync_device_must_be_bound_to_native_access_token(monkeypatch) -> None:
@@ -202,6 +233,35 @@ def test_expired_token_is_deleted_and_rejected(monkeypatch) -> None:
     assert session.deleted == [rows["expired-1"]]
 
 
+@pytest.mark.parametrize("token_type", ["access", "refresh"])
+def test_browser_session_refresh_rejects_native_token_types(monkeypatch, token_type: str) -> None:
+    row = _token_row("native-token", token_type=token_type)
+    session = FakeSession({"native-token": row}, _user_row())
+    monkeypatch.setattr("testpaper_backend.services.auth_sessions.SessionLocal", lambda: session)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth_sessions.refresh_auth_session("native-token")
+
+    assert exc_info.value.detail["code"] == "INVALID_TOKEN"
+
+
+def test_browser_refresh_route_reads_cookie_not_bearer(monkeypatch) -> None:
+    request = _request("/api/v1/auth/refresh")
+    request.headers = {"authorization": "Bearer native-access"}
+    request.cookies = {"testpaper_auth": "browser-session"}
+    captured: list[str | None] = []
+    auth_session = SimpleNamespace(expiresAt=NOW, model_dump=lambda mode="json": {})
+    monkeypatch.setattr("testpaper_backend.security.get_auth_cookie_name", lambda: "testpaper_auth")
+    monkeypatch.setattr(auth_routes, "refresh_auth_session", lambda token: (captured.append(token) or "new-session", auth_session))
+    monkeypatch.setattr(auth_routes, "set_auth_cookie", lambda *args: None)
+    monkeypatch.setattr(auth_routes, "set_csrf_cookie", lambda *args: None)
+    monkeypatch.setattr(auth_routes, "generate_csrf_token", lambda: "csrf")
+
+    auth_routes.refresh_session(request, SimpleNamespace())
+
+    assert captured == ["browser-session"]
+
+
 # --- native refresh rotation ---
 
 
@@ -209,6 +269,7 @@ def test_refresh_rotates_and_revokes_old_pair(monkeypatch) -> None:
     old_refresh = _token_row("refresh-old", token_type="refresh", device_id="dev-1", device_name="iPhone", ip_address="1.2.3.4")
     old_access = _token_row("access-old", token_type="access", refresh_token_id="refresh-old", device_id="dev-1")
     session = FakeSession({"refresh-old": old_refresh, "access-old": old_access}, _user_row())
+    session.scalar_results = [old_refresh]
     monkeypatch.setattr("testpaper_backend.services.auth_sessions.SessionLocal", lambda: session)
 
     pair = auth_sessions.refresh_token_pair("refresh-old")
@@ -226,6 +287,7 @@ def test_refresh_rotates_and_revokes_old_pair(monkeypatch) -> None:
 def test_expired_refresh_token_is_rejected(monkeypatch) -> None:
     expired = _token_row("refresh-expired", token_type="refresh", expires_at=NOW - timedelta(minutes=1))
     session = FakeSession({"refresh-expired": expired}, _user_row())
+    session.scalar_results = [expired]
     monkeypatch.setattr("testpaper_backend.services.auth_sessions.SessionLocal", lambda: session)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -257,6 +319,19 @@ def test_unknown_refresh_token_is_rejected(monkeypatch) -> None:
     assert exc_info.value.detail["code"] == "INVALID_TOKEN"
 
 
+def test_replayed_refresh_token_revokes_entire_family(monkeypatch) -> None:
+    replayed = _token_row("refresh-old", token_type="refresh", revoked_at=NOW - timedelta(seconds=1))
+    session = FakeSession({"refresh-old": replayed}, _user_row())
+    monkeypatch.setattr("testpaper_backend.services.auth_sessions.SessionLocal", lambda: session)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth_sessions.refresh_token_pair("refresh-old")
+
+    assert exc_info.value.detail["code"] == "TOKEN_REUSED"
+    assert any(getattr(entity, "event", None) == "refresh_reuse" for entity in session.added)
+    assert session.commit_count == 1
+
+
 # --- native login ---
 
 
@@ -273,6 +348,10 @@ def test_native_login_issues_pair_and_records_login_audit(monkeypatch) -> None:
     assert any(getattr(entity, "event", None) == "login" for entity in session.added)
     # Two new token rows are persisted (access + refresh).
     assert len([entity for entity in session.added if isinstance(entity, AuthTokenRow)]) == 2
+    stored_tokens = [entity.token for entity in session.added if isinstance(entity, AuthTokenRow)]
+    assert stored_tokens == [token_digest(pair.refreshToken), token_digest(pair.accessToken)]
+    assert pair.accessToken not in stored_tokens
+    assert pair.refreshToken not in stored_tokens
 
 
 def test_native_login_route_returns_token_pair_without_cookies(monkeypatch) -> None:

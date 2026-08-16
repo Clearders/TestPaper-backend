@@ -8,11 +8,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket, status
 
 from testpaper_backend.config import get_auth_cookie_name
 from testpaper_backend.redis_client import get_async_redis
 from testpaper_backend.schemas.realtime import serialize_server_message
+from testpaper_backend.security import get_user_from_token
+from testpaper_backend.services.drafts import get_shared_draft
 
 MAX_CONNECTIONS_PER_IP = 10
 BROADCAST_CHANNEL = "testpaper:broadcast"
@@ -35,6 +37,7 @@ class RealtimeConnectionManager:
         self._socket_drafts: dict[WebSocket, set[str]] = {}
         self._socket_sessions: dict[WebSocket, str] = {}
         self._socket_users: dict[WebSocket, dict[str, str]] = {}
+        self._socket_tokens: dict[WebSocket, str] = {}
         self._local_presence: dict[tuple[str, str], dict[str, Any]] = {}
         self._pubsub: Any = None
         self._pubsub_task: asyncio.Task[None] | None = None
@@ -112,6 +115,11 @@ class RealtimeConnectionManager:
         message_text = json.dumps(serialized, ensure_ascii=False, separators=(",", ":"))
         stale: list[WebSocket] = []
         for websocket in list(recipients):
+            if not self._recipient_is_authorized(websocket, draft_id):
+                with suppress(Exception):
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                stale.append(websocket)
+                continue
             try:
                 await websocket.send_text(message_text)
             except Exception:
@@ -120,7 +128,21 @@ class RealtimeConnectionManager:
         for ws in stale:
             self.disconnect(ws)
 
-    async def connect(self, websocket: WebSocket) -> None:
+    def _recipient_is_authorized(self, websocket: WebSocket, draft_id: str | None) -> bool:
+        token = self._socket_tokens.get(websocket)
+        if token is None:
+            # Unit-level manager callers may install synthetic sockets directly;
+            # every production connection is registered with a token.
+            return True
+        try:
+            user = get_user_from_token(token, _get_websocket_ip(websocket))
+            if draft_id is not None:
+                get_shared_draft(draft_id, user)
+        except HTTPException:
+            return False
+        return True
+
+    async def connect(self, websocket: WebSocket, *, token: str, user: dict[str, str]) -> None:
         await websocket.accept()
         ip = _get_websocket_ip(websocket)
         if ip not in self._ip_connections:
@@ -129,6 +151,8 @@ class RealtimeConnectionManager:
         self._connections.add(websocket)
         self._socket_drafts[websocket] = set()
         self._socket_sessions[websocket] = uuid4().hex
+        self._socket_tokens[websocket] = token
+        self._socket_users[websocket] = user
         await self._ensure_pubsub()
 
     def disconnect(self, websocket: WebSocket) -> None:
@@ -144,6 +168,7 @@ class RealtimeConnectionManager:
             for key in [key for key in self._local_presence if key[1] == session_id]:
                 self._local_presence.pop(key, None)
         self._socket_users.pop(websocket, None)
+        self._socket_tokens.pop(websocket, None)
         ip = _get_websocket_ip(websocket)
         ip_set = self._ip_connections.get(ip)
         if ip_set:
@@ -180,6 +205,15 @@ class RealtimeConnectionManager:
         self._socket_drafts.setdefault(websocket, set()).add(draft_id)
         self._socket_users[websocket] = user
         await self.update_presence(websocket, draft_id, "viewing")
+
+    async def evict_user_from_draft(self, draft_id: str, user_public_id: str) -> None:
+        targets = [
+            websocket
+            for websocket in self._draft_connections.get(draft_id, set())
+            if self._socket_users.get(websocket, {}).get("publicId") == user_public_id
+        ]
+        for websocket in targets:
+            await self.unsubscribe_draft(websocket, draft_id)
 
     async def unsubscribe_draft(self, websocket: WebSocket, draft_id: str) -> None:
         room = self._draft_connections.get(draft_id)

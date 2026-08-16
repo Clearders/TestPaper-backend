@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from testpaper_backend.config import get_avatar_upload_dir
 from testpaper_backend.db import AuthAuditLogRow, AuthTokenRow, SessionLocal, UserRow
 from testpaper_backend.schemas import ImageUploadPayload, ImageUploadResponse, PasswordChange, ProfileUpdate, UserEntity
-from testpaper_backend.security import password_hash, user_row_to_entity, verify_password
+from testpaper_backend.security import password_hash, token_digest, user_row_to_entity, verify_password
 from testpaper_backend.services.png_uploads import PngUploadTarget, store_png_upload
 from testpaper_backend.services.user_errors import user_not_found, username_exists
 from testpaper_backend.time_utils import now_utc
@@ -76,7 +76,7 @@ def change_user_password(user_id: int, payload: PasswordChange, current_token: s
         user_row.updated_at = now_utc()
         revoke_other_sessions = delete(AuthTokenRow).where(AuthTokenRow.user_id == user_id)
         if current_token:
-            revoke_other_sessions = revoke_other_sessions.where(AuthTokenRow.token != current_token)
+            revoke_other_sessions = revoke_other_sessions.where(AuthTokenRow.token != token_digest(current_token))
         session.execute(revoke_other_sessions)
         session.add(AuthAuditLogRow(user_id=user_id, device_id=None, event="password_changed", ip_address=ip_address, created_at=now_utc()))
         session.commit()

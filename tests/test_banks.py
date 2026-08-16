@@ -228,10 +228,73 @@ def test_non_member_read_private_bank_is_404(monkeypatch: pytest.MonkeyPatch) ->
     assert exc_info.value.detail["code"] == "BANK_NOT_FOUND"
 
 
-def test_public_bank_readable_by_any_authenticated_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_session(monkeypatch, _bank_row(owner_id=1, visibility="public"))
+def test_published_public_bank_readable_by_any_authenticated_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_session(monkeypatch, _bank_row(owner_id=1, visibility="public", publications=[_publication_row()]))
     detail = banks.get_bank_detail("bank-1", _user(4, UserRole.viewer))
     assert detail.accessRole == BankAccessRole.viewer
+
+
+def test_public_non_member_reads_snapshot_not_working_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    publication = _publication_row(
+        state={
+            "version": 1,
+            "visibility": "public",
+            "publishedAt": UTC_DT.isoformat(),
+            "bank": {"publicId": "bank-1", "name": "Published name", "description": "Published description"},
+            "items": [
+                {
+                    "publicId": "q-1",
+                    "data": {
+                        "type": "single_choice",
+                        "subjects": ["Math"],
+                        "difficulty": "medium",
+                        "tags": [],
+                        "text": "Published question",
+                        "options": ["A", "B"],
+                        "answer": "A",
+                        "hasLatex": False,
+                        "images": [],
+                        "scoreWeight": 1.0,
+                    },
+                }
+            ],
+        }
+    )
+    live_question = _question_row(answer="UNPUBLISHED SECRET")
+    live_question.text = "Unpublished working-copy question"
+    row = _bank_row(
+        owner_id=1,
+        visibility="public",
+        publications=[publication],
+        items=[_item_row(question=live_question)],
+    )
+    _patch_session(monkeypatch, row)
+
+    caller = _user(4, UserRole.teacher)
+    detail = banks.get_bank_detail("bank-1", caller)
+    questions = banks.list_bank_questions("bank-1", caller)
+
+    assert detail.name == "Published name"
+    assert detail.members == []
+    assert [question.text for question in questions] == ["Published question"]
+    assert questions[0].answer == "A"
+
+
+def test_withdrawn_public_bank_hidden_from_non_member_but_pinned_subscription_survives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publication = _publication_row(version=1, withdrawn_at=UTC_DT)
+    row = _bank_row(owner_id=1, visibility="public", publications=[publication])
+    _patch_session(monkeypatch, row)
+
+    with pytest.raises(HTTPException) as exc_info:
+        banks.get_bank_detail("bank-1", _user(4, UserRole.viewer))
+    assert exc_info.value.status_code == 404
+
+    row.subscriptions = [_subscription_row(user_id=4, publication=publication)]
+    detail = banks.get_bank_detail("bank-1", _user(4, UserRole.viewer))
+    assert detail.version == 1
+    assert detail.isSubscribed is True
 
 
 def test_team_bank_hidden_from_non_member(monkeypatch: pytest.MonkeyPatch) -> None:
