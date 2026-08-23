@@ -32,3 +32,21 @@ The Desktop repository independently consumes the same fault-model contract in `
 6. Record residual risks and either approve or file findings on CLE-60.
 
 The qualification report is deliberately explicit that synthetic timings do not replace staging/canary SLO observations.
+
+## Remediation evidence
+
+The independent-review findings are addressed by commit
+`3f38aabcb0edfa0545e8d25da0b6f04c2090d0f4` and GitHub pull request
+`https://github.com/Clearders/TestPaper-backend/pull/27`. The frozen original report above is
+unchanged; `remediation-report.json` records the follow-up PostgreSQL, Python, Rust, contract,
+and dependency-audit evidence.
+
+Change-log compaction is intentionally manual during qualification. Preview one stream first,
+then use the explicit apply switch only after comparing the reported boundary and row counts:
+
+```bash
+python scripts/compact_sync_change_log.py --owner-id 123 --scope personal
+python scripts/compact_sync_change_log.py --owner-id 123 --scope personal --apply
+```
+
+Automatic scheduling and broader rollout remain blocked on the real staging canary.

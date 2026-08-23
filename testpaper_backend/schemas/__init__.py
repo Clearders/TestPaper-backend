@@ -116,6 +116,7 @@ from testpaper_backend.schemas.sync import (
     AttachmentUploadStatus,
     SyncAckRequest,
     SyncAckResponse,
+    SyncCapabilities,
     SyncChange,
     SyncConflictReason,
     SyncConflictRecord,

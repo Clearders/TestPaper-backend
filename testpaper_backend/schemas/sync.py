@@ -11,6 +11,13 @@ HASH_PATTERN = r"^[0-9a-f]{64}$"
 StableId = Annotated[str, Field(pattern=STABLE_ID_PATTERN)]
 ContentHash = Annotated[str, Field(pattern=HASH_PATTERN)]
 
+SYNC_PROTOCOL_VERSION = 1
+MAX_SYNC_MUTATIONS = 100
+MAX_SYNC_MUTATION_BYTES = 1024 * 1024
+MAX_SYNC_BATCH_BYTES = 10 * 1024 * 1024
+SYNC_IDEMPOTENCY_RETENTION_DAYS = 90
+SYNC_SNAPSHOT_URL = "/api/v1/sync/snapshot"
+
 
 class SyncEntityType(StrEnum):
     question = "question"
@@ -113,7 +120,7 @@ class SyncPushRequest(BaseModel):
     protocolVersion: int
     batchId: StableId
     deviceId: str = Field(min_length=1, max_length=128)
-    mutations: list[SyncMutation] = Field(max_length=100)
+    mutations: list[SyncMutation] = Field(max_length=MAX_SYNC_MUTATIONS)
 
     @model_validator(mode="after")
     def validate_operation_graph(self):
@@ -151,6 +158,18 @@ class SyncPushResponse(BaseModel):
     protocolVersion: int
     batchId: StableId
     results: list[SyncOperationResult]
+
+
+class SyncCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocolVersions: list[Literal[1]]
+    entitySchemaVersions: dict[SyncEntityType, list[Literal[1]]]
+    maxMutations: int = Field(ge=1)
+    maxMutationBytes: int = Field(ge=1)
+    maxBatchBytes: int = Field(ge=1)
+    idempotencyRetentionDays: int = Field(ge=1)
+    snapshotUrl: str = Field(min_length=1)
 
 
 class SyncChange(BaseModel):

@@ -1,0 +1,66 @@
+{
+  "reportVersion": "cle-60-remediation/v1",
+  "issue": "CLE-60",
+  "reviewedBaseCommit": "e378f2bb200dd7692b60e4a15e59042fbe675443",
+  "implementationCommit": "3f38aabcb0edfa0545e8d25da0b6f04c2090d0f4",
+  "pullRequest": "https://github.com/Clearders/TestPaper-backend/pull/27",
+  "githubChecks": "https://github.com/Clearders/TestPaper-backend/pull/27/checks",
+  "desktopEvidenceCommit": "73734cbf950e55f298aa72688c16b39ac02c92e6",
+  "verifiedAt": "2026-08-23",
+  "remediations": [
+    "Durable concurrentCreate conflicts are stored with SQL NULL baselines and replayable conflictId values.",
+    "Compaction preserves each entity's latest change row and tombstones while guarded PostgreSQL triggers reject unsafe mutation.",
+    "SYNC_CURSOR_EXPIRED includes snapshotUrl and oldestRetainedSequence recovery details.",
+    "Sync v1 enforces 100 mutations, 1 MiB per canonical mutation, and 10 MiB per canonical batch.",
+    "Authenticated GET /api/v1/sync/capabilities publishes protocol, schema, recovery, and size capabilities."
+  ],
+  "localQualification": {
+    "backendQualityGate": {
+      "command": "python scripts/check.py --with-postgres",
+      "status": "passed",
+      "pytest": {
+        "passed": 260,
+        "failed": 0
+      },
+      "migrationHead": "20260823_0026",
+      "migrationRoundTrip": "passed",
+      "dependencyAudit": "noKnownVulnerabilities"
+    },
+    "pythonFaultModel": {
+      "sequences": 10000,
+      "status": "passed"
+    },
+    "rustFaultModel": {
+      "command": "SYNC_FAULT_SEQUENCES=10000 cargo +1.94.1 test --manifest-path src-tauri/Cargo.toml --locked --test sync_fault_model",
+      "sequences": 10000,
+      "testsPassed": 2,
+      "testsFailed": 0,
+      "status": "passed"
+    }
+  },
+  "localArtifactSha256": {
+    "migration-round-trip.json": "4c74ebad835a9e4cbbd97dff5fbd9fade13c4510112e377143c3aa45a7250181",
+    "dependency-audit.json": "7578a14b8e4204438811d4de30f4ff72d105c01b63d6b7e605462fcc9efde8f9",
+    "pytest-junit.xml": "4b6dded8776b2a17363bbac2d4dcb31dc285b50f1e72f36601749a8c983c40d7",
+    "smoke-junit.xml": "a6c97147fb5d938c1de329673a57fe3373d03ce61cd576396f24c5c423fff285"
+  },
+  "continuousIntegration": {
+    "workflow": ".github/workflows/ci.yml",
+    "requiredBeforeMerge": true,
+    "artifactNames": [
+      "openapi-<commit>",
+      "backend-quality-<commit>"
+    ],
+    "evidenceLocation": "https://github.com/Clearders/TestPaper-backend/pull/27/checks"
+  },
+  "operationalQualification": {
+    "status": "pendingStagingCanary",
+    "automaticCompactionScheduled": false,
+    "required": "Run one explicitly selected staging owner/scope, compare snapshots before and after compaction, and satisfy the rolling Sync SLO window."
+  },
+  "dataHandling": {
+    "containsBusinessPayload": false,
+    "containsCredentials": false,
+    "containsStableProductionIdentifiers": false
+  }
+}

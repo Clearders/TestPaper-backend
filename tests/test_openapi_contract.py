@@ -44,7 +44,7 @@ def test_sync_push_publishes_contract_1_2_and_stable_error_responses() -> None:
     contract = app.openapi()
     operation = contract["paths"]["/api/v1/sync/push"]["post"]
 
-    assert contract["info"]["version"] == "1.2.0"
+    assert contract["info"]["version"] == "1.3.0"
     assert operation["requestBody"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/SyncPushRequest"}
     assert {"409", "413", "426"} <= set(operation["responses"])
     for status_code in ("409", "413", "426"):
@@ -63,6 +63,18 @@ def test_sync_read_endpoints_are_bearer_only_and_publish_recovery_errors() -> No
         operation = contract["paths"][path][method]
         assert operation["security"] == [{"bearerAuth": []}]
         assert {"400", "410", "426"} <= set(operation["responses"])
+
+
+def test_sync_capabilities_are_authenticated_and_publish_fixed_v1_limits() -> None:
+    contract = app.openapi()
+    operation = contract["paths"]["/api/v1/sync/capabilities"]["get"]
+
+    assert operation["security"] == [{"bearerAuth": []}]
+    schema = contract["components"]["schemas"]["SyncCapabilities"]
+    assert schema["properties"]["maxMutations"]["minimum"] == 1
+    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/Envelope_SyncCapabilities_"
+    }
 
 
 def test_attachment_transfer_contract_is_bearer_only_and_documents_verified_bytes() -> None:

@@ -326,6 +326,11 @@ def test_batch_limits_and_device_binding_use_stable_errors(monkeypatch) -> None:
             request_id="request-1",
         )
     assert too_large.value.detail["code"] == "SYNC_BATCH_TOO_LARGE"
+    assert too_large.value.detail["details"] == {
+        "maxMutations": 0,
+        "maxMutationBytes": 1024 * 1024,
+        "maxBatchBytes": 10 * 1024 * 1024,
+    }
 
     monkeypatch.setattr(sync_push, "MAX_PUSH_MUTATIONS", 100)
     with pytest.raises(HTTPException) as wrong_device:
@@ -336,6 +341,48 @@ def test_batch_limits_and_device_binding_use_stable_errors(monkeypatch) -> None:
             request_id="request-1",
         )
     assert wrong_device.value.detail["code"] == "SYNC_ENTITY_FORBIDDEN"
+
+
+def test_canonical_utf8_mutation_and_batch_byte_limits_are_enforced_before_database_access(monkeypatch) -> None:
+    payload = push_request(
+        SyncMutation(
+            operationId=OPERATION_1,
+            entityType="question",
+            entityId=ENTITY_ID,
+            kind="create",
+            payload={"text": "四则运算🙂"},
+            dependsOn=[],
+        )
+    )
+    mutation_size = sync_push._canonical_size(payload.mutations[0].model_dump(mode="json"))
+    batch_size = sync_push._canonical_size(payload.model_dump(mode="json"))
+    monkeypatch.setattr(sync_push, "MAX_PUSH_MUTATION_BYTES", mutation_size)
+    monkeypatch.setattr(sync_push, "MAX_PUSH_BATCH_BYTES", batch_size)
+    sync_push._enforce_batch_limits(payload)
+
+    monkeypatch.setattr(sync_push, "MAX_PUSH_MUTATION_BYTES", mutation_size - 1)
+    monkeypatch.setattr(sync_push, "SessionLocal", lambda: pytest.fail("oversized payload opened a database session"))
+    with pytest.raises(HTTPException) as oversized_mutation:
+        sync_push.push_mutations(
+            payload,
+            user=teacher(),
+            authenticated_device_id="desktop-1",
+            request_id="request-oversized",
+        )
+    assert oversized_mutation.value.status_code == 413
+    assert oversized_mutation.value.detail["details"]["maxMutationBytes"] == mutation_size - 1
+
+    monkeypatch.setattr(sync_push, "MAX_PUSH_MUTATION_BYTES", mutation_size)
+    monkeypatch.setattr(sync_push, "MAX_PUSH_BATCH_BYTES", batch_size - 1)
+    with pytest.raises(HTTPException) as oversized_batch:
+        sync_push.push_mutations(
+            payload,
+            user=teacher(),
+            authenticated_device_id="desktop-1",
+            request_id="request-oversized",
+        )
+    assert oversized_batch.value.status_code == 413
+    assert oversized_batch.value.detail["details"]["maxBatchBytes"] == batch_size - 1
 
 
 def test_public_push_enums_match_the_pinned_sync_v1_contract() -> None:

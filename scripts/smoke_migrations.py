@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -24,7 +24,15 @@ from testpaper_backend.config import get_database_url
 def exercise_sync_push(test_engine) -> int:
     from fastapi import HTTPException
 
-    from testpaper_backend.db import SyncChangeLogRow, SyncDeviceCursorRow, SyncEntityVersionRow, SyncStreamRow, UserRow
+    from testpaper_backend.db import (
+        SyncChangeLogRow,
+        SyncConflictRow,
+        SyncDeviceCursorRow,
+        SyncEntityVersionRow,
+        SyncOperationResultRow,
+        SyncStreamRow,
+        UserRow,
+    )
     from testpaper_backend.schemas import (
         SyncAckRequest,
         SyncConflictResolutionRequest,
@@ -375,7 +383,307 @@ def exercise_sync_push(test_engine) -> int:
     else:
         raise AssertionError("resolution operationId accepted different content")
     assert len(sync_conflicts.list_versions("question", entity_id, user=user)) == 8
+
+    divergent_entity_id = "b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1"
+    divergent_requests = [
+        SyncPushRequest(
+            protocolVersion=1,
+            batchId=batch_id,
+            deviceId="migration-smoke",
+            mutations=[
+                SyncMutation(
+                    operationId=operation_id,
+                    entityType="question",
+                    entityId=divergent_entity_id,
+                    kind="create",
+                    payload={"text": text_value, "answer": 4},
+                    dependsOn=[],
+                )
+            ],
+        )
+        for batch_id, operation_id, text_value in (
+            (
+                "b2b2b2b2-b2b2-42b2-82b2-b2b2b2b2b2b2",
+                "b3b3b3b3-b3b3-43b3-83b3-b3b3b3b3b3b3",
+                "concurrent-create-a",
+            ),
+            (
+                "b4b4b4b4-b4b4-44b4-84b4-b4b4b4b4b4b4",
+                "b5b5b5b5-b5b5-45b5-85b5-b5b5b5b5b5b5",
+                "concurrent-create-b",
+            ),
+        )
+    ]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        divergent_results = list(
+            executor.map(
+                lambda request: sync_push.push_mutations(
+                    request,
+                    user=user,
+                    authenticated_device_id="migration-smoke",
+                    request_id=f"sync-smoke-{request.batchId}",
+                ),
+                divergent_requests,
+            )
+        )
+    divergent_operation_results = [response.results[0] for response in divergent_results]
+    assert sorted(result.status.value for result in divergent_operation_results) == ["applied", "conflict"]
+    conflict_index = next(
+        index for index, result in enumerate(divergent_operation_results) if result.status == SyncOperationStatus.conflict
+    )
+    concurrent_create_conflict = divergent_operation_results[conflict_index]
+    assert concurrent_create_conflict.conflictId is not None, concurrent_create_conflict.model_dump(mode="json")
+    replayed_concurrent_create = sync_push.push_mutations(
+        divergent_requests[conflict_index],
+        user=user,
+        authenticated_device_id="migration-smoke",
+        request_id="sync-smoke-concurrent-create-replay",
+    )
+    assert replayed_concurrent_create == divergent_results[conflict_index]
+    with sessions() as session:
+        persisted_conflict = session.scalar(
+            select(SyncConflictRow).where(SyncConflictRow.public_id == concurrent_create_conflict.conflictId)
+        )
+        persisted_result = session.scalar(
+            select(SyncOperationResultRow).where(
+                SyncOperationResultRow.owner_id == user.id,
+                SyncOperationResultRow.operation_id == divergent_requests[conflict_index].mutations[0].operationId,
+            )
+        )
+        assert persisted_conflict is not None and persisted_conflict.reason == "concurrentCreate"
+        assert persisted_result is not None and persisted_result.details["conflictId"] == concurrent_create_conflict.conflictId
+
+    identical_entity_id = "b6b6b6b6-b6b6-46b6-86b6-b6b6b6b6b6b6"
+    identical_requests = [
+        SyncPushRequest(
+            protocolVersion=1,
+            batchId=batch_id,
+            deviceId="migration-smoke",
+            mutations=[
+                SyncMutation(
+                    operationId=operation_id,
+                    entityType="question",
+                    entityId=identical_entity_id,
+                    kind="create",
+                    payload={"text": "same concurrent create", "answer": 4},
+                    dependsOn=[],
+                )
+            ],
+        )
+        for batch_id, operation_id in (
+            ("b7b7b7b7-b7b7-47b7-87b7-b7b7b7b7b7b7", "b8b8b8b8-b8b8-48b8-88b8-b8b8b8b8b8b8"),
+            ("b9b9b9b9-b9b9-49b9-89b9-b9b9b9b9b9b9", "bababaab-baba-4aba-8aba-bababaababab"),
+        )
+    ]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        identical_results = list(
+            executor.map(
+                lambda request: sync_push.push_mutations(
+                    request,
+                    user=user,
+                    authenticated_device_id="migration-smoke",
+                    request_id=f"sync-smoke-{request.batchId}",
+                ),
+                identical_requests,
+            )
+        )
+    assert sorted(response.results[0].status.value for response in identical_results) == ["applied", "noop"]
+    assert all(response.results[0].conflictId is None for response in identical_results)
     return user.id
+
+
+def exercise_sync_compaction(test_engine) -> None:
+    from fastapi import HTTPException
+    from sqlalchemy.exc import DBAPIError
+
+    from testpaper_backend.db import SyncChangeLogRow, SyncEntityVersionRow, SyncStreamRow, UserRow
+    from testpaper_backend.schemas import SyncMutation, SyncPushRequest, UserEntity, UserRole
+    from testpaper_backend.security import permissions_for_role
+    from testpaper_backend.services import sync_compaction, sync_push, sync_read
+    from testpaper_backend.time_utils import now_utc
+
+    sessions = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+    current_time = now_utc()
+    with sessions() as session:
+        user_row = UserRow(
+            username="sync-compaction-smoke",
+            display_name="Sync Compaction Smoke",
+            password_hash="not-used",
+            role=UserRole.teacher.value,
+            is_active=True,
+            created_at=current_time,
+            updated_at=current_time,
+        )
+        session.add(user_row)
+        session.commit()
+        session.refresh(user_row)
+        user = UserEntity(
+            id=user_row.id,
+            publicId=user_row.public_id,
+            username=user_row.username,
+            displayName=user_row.display_name,
+            role=UserRole.teacher,
+            permissions=permissions_for_role(UserRole.teacher),
+            isActive=True,
+            createdAt=current_time,
+            updatedAt=current_time,
+        )
+
+    sync_push.SessionLocal = sessions
+    sync_read.SessionLocal = sessions
+    device_id = "compaction-smoke"
+
+    def push(entity_id: str, kind: str, payload, *, base_version=None, base_hash=None):
+        request = SyncPushRequest(
+            protocolVersion=1,
+            batchId=str(uuid4()),
+            deviceId=device_id,
+            mutations=[
+                SyncMutation(
+                    operationId=str(uuid4()),
+                    entityType="question",
+                    entityId=entity_id,
+                    kind=kind,
+                    baseVersion=base_version,
+                    baseContentHash=base_hash,
+                    payload=payload,
+                    dependsOn=[],
+                )
+            ],
+        )
+        return sync_push.push_mutations(
+            request,
+            user=user,
+            authenticated_device_id=device_id,
+            request_id=f"sync-compaction-{request.batchId}",
+        ).results[0]
+
+    entity_a = "c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1"
+    entity_b = "c2c2c2c2-c2c2-42c2-82c2-c2c2c2c2c2c2"
+    entity_c = "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3"
+    entity_recent = "c4c4c4c4-c4c4-44c4-84c4-c4c4c4c4c4c4"
+    original_now_utc = sync_push.now_utc
+    sync_push.now_utc = lambda: current_time - timedelta(days=91)
+    try:
+        a_created = push(entity_a, "create", {"text": "old-a-v1"})
+        a_updated = push(
+            entity_a,
+            "update",
+            {"text": "old-a-v2"},
+            base_version=a_created.entityVersion,
+            base_hash=a_created.contentHash,
+        )
+        b_created = push(entity_b, "create", {"text": "old-b"})
+        push(
+            entity_b,
+            "delete",
+            None,
+            base_version=b_created.entityVersion,
+            base_hash=b_created.contentHash,
+        )
+        push(entity_c, "create", {"text": "old-unchanged"})
+    finally:
+        sync_push.now_utc = original_now_utc
+    recent = push(entity_recent, "create", {"text": "recent"})
+    assert a_updated.entityVersion == 2 and recent.entityVersion == 1
+
+    first_snapshot = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=None, page_size=2)
+    old_snapshot_cursor = first_snapshot.nextCursor
+    before_entries = list(first_snapshot.entries)
+    page = first_snapshot
+    while page.hasMore:
+        page = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=page.nextCursor, page_size=2)
+        before_entries.extend(page.entries)
+    with sessions() as session:
+        stream = session.get(SyncStreamRow, (user.id, "personal"))
+        assert stream is not None
+        old_change_cursor = sync_read._change_cursor(owner_id=user.id, device_id=device_id, stream=stream, sequence=0)
+
+    dry_run = sync_compaction.compact_sync_stream(
+        owner_id=user.id,
+        scope="personal",
+        current_time=current_time,
+        session_factory=sessions,
+    )
+    assert dry_run.applied is False and dry_run.deletedRows == 2 and dry_run.preservedRows == 3
+    applied = sync_compaction.compact_sync_stream(
+        owner_id=user.id,
+        scope="personal",
+        current_time=current_time,
+        apply=True,
+        session_factory=sessions,
+    )
+    assert applied.applied is True and applied.deletedRows == 2 and applied.epochRotated is True
+
+    try:
+        sync_read.pull_changes(user=user, device_id=device_id, cursor=old_change_cursor, page_size=10)
+    except HTTPException as error:
+        assert error.detail["code"] == "SYNC_CURSOR_EXPIRED"
+        assert error.detail["details"] == {
+            "snapshotUrl": "/api/v1/sync/snapshot",
+            "oldestRetainedSequence": str(applied.newRetainedFromSequence),
+        }
+    else:
+        raise AssertionError("pre-compaction change cursor unexpectedly remained valid")
+
+    try:
+        sync_read.snapshot_entities(user=user, device_id=device_id, cursor=old_snapshot_cursor, page_size=2)
+    except HTTPException as error:
+        assert error.detail["code"] == "SYNC_SNAPSHOT_EXPIRED"
+    else:
+        raise AssertionError("pre-compaction snapshot cursor unexpectedly remained valid")
+
+    fresh_snapshot = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=None, page_size=2)
+    after_entries = list(fresh_snapshot.entries)
+    page = fresh_snapshot
+    while page.hasMore:
+        page = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=page.nextCursor, page_size=2)
+        after_entries.extend(page.entries)
+    assert [entry.model_dump(mode="json") for entry in after_entries] == [entry.model_dump(mode="json") for entry in before_entries]
+    tombstone = next(entry for entry in after_entries if entry.entityId == entity_b)
+    assert tombstone.kind.value == "delete" and tombstone.snapshot is None
+
+    with sessions() as session:
+        stream = session.get(SyncStreamRow, (user.id, "personal"))
+        assert stream is not None
+        assert stream.retained_from_sequence == applied.newRetainedFromSequence
+        assert stream.snapshot_version == 1
+        assert session.query(SyncEntityVersionRow).filter(SyncEntityVersionRow.owner_id == user.id).count() == 6
+        remaining_changes = session.query(SyncChangeLogRow).filter(SyncChangeLogRow.owner_id == user.id).all()
+        assert len(remaining_changes) == 4
+        assert {row.public_id for row in remaining_changes} == {entity_a, entity_b, entity_c, entity_recent}
+        horizon_cursor = sync_read._change_cursor(
+            owner_id=user.id,
+            device_id=device_id,
+            stream=stream,
+            sequence=stream.retained_from_sequence,
+        )
+    incremental = sync_read.pull_changes(user=user, device_id=device_id, cursor=horizon_cursor, page_size=10)
+    assert [change.entityId for change in incremental.changes] == [entity_recent]
+    assert incremental.hasMore is False
+
+    immutable_attempts = [
+        (
+            'UPDATE sync_change_log SET "operationId" = :replacement WHERE "ownerId" = :owner_id AND "publicId" = :public_id',
+            {"replacement": str(uuid4()), "owner_id": user.id, "public_id": entity_a},
+        ),
+        (
+            'DELETE FROM sync_change_log WHERE "ownerId" = :owner_id AND "publicId" = :public_id',
+            {"owner_id": user.id, "public_id": entity_c},
+        ),
+        (
+            'DELETE FROM sync_change_log WHERE "ownerId" = :owner_id AND "publicId" = :public_id',
+            {"owner_id": user.id, "public_id": entity_recent},
+        ),
+    ]
+    for statement, parameters in immutable_attempts:
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text(statement), parameters)
+        except DBAPIError as error:
+            assert "append-only" in str(error.orig)
+        else:
+            raise AssertionError("unsafe sync change-log mutation unexpectedly succeeded")
 
 
 def exercise_conflict_model(test_engine, owner_id: int) -> None:
@@ -1035,6 +1343,7 @@ def main() -> None:
 
         owner_id = exercise_sync_push(test_engine)
         exercise_conflict_model(test_engine, owner_id)
+        exercise_sync_compaction(test_engine)
         exercise_attachment_model(test_engine, owner_id)
         exercise_attachment_transfer(test_engine, owner_id)
 
