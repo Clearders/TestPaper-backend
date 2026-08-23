@@ -140,13 +140,26 @@ Completed idempotency rows outlive the maximum documented client retry interval.
 never remove a `processing` batch and must not remove a completed batch while clients can still
 legitimately replay its key.
 
-Revision `20260823_0026` keeps updates to `sync_change_log` prohibited and permits deletion only
-when PostgreSQL can prove that the row is at or below the stream's committed retention horizon
-and a later row exists for the same logical entity. The compactor retains the latest change for
-every entity, including tombstones, so snapshots remain reconstructable after physical history
-removal. Operators use `scripts/compact_sync_change_log.py`; it is a dry run unless `--apply` is
-explicitly supplied. Compaction is irreversible, so rollback disables the operator before the
-migration restores the blanket append-only trigger.
+Revision `20260823_0026` keeps updates to `sync_change_log` prohibited and permits guarded physical
+deletion below the stream's committed retention horizon. Revision `20260823_0027` strengthens that
+guard: a row is deletable only when a later row for the same logical entity also exists **at or
+below that horizon**. A write above the boundary is never a deletion witness. The compactor
+therefore preserves the newest pre-boundary anchor for every entity, including tombstones, while
+all post-boundary writes remain in the incremental log.
+
+Expired-cursor recovery continues to use the boundary-version query over `sync_change_log` and
+immutable `sync_entity_versions`, rather than paging directly over mutable `sync_entities`. This is
+intentional: a current-state projection can mix writes committed between pages unless it is copied
+into a durable snapshot session. With the anchor invariant, the first snapshot request pins a log
+boundary, each page reconstructs the same authorized entity versions at or below it, and
+`resumeCursor` exposes every later write. A compaction during pagination rotates the stream epoch,
+so the next page expires instead of observing physically removed anchors. Physical projection
+deletion remains outside user-visible delete semantics; required tombstones stay projected and
+anchored until a separate retention policy permits their purge.
+
+Operators use `scripts/compact_sync_change_log.py`; it is a dry run unless `--apply` is explicitly
+supplied. Compaction is irreversible, so rollback disables the operator before the migration
+restores the preceding guard.
 
 ## Query-plan baseline
 

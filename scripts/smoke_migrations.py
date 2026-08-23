@@ -562,6 +562,7 @@ def exercise_sync_compaction(test_engine) -> None:
     entity_b = "c2c2c2c2-c2c2-42c2-82c2-c2c2c2c2c2c2"
     entity_c = "c3c3c3c3-c3c3-43c3-83c3-c3c3c3c3c3c3"
     entity_recent = "c4c4c4c4-c4c4-44c4-84c4-c4c4c4c4c4c4"
+    entity_boundary = "c5c5c5c5-c5c5-45c5-85c5-c5c5c5c5c5c5"
     original_now_utc = sync_push.now_utc
     sync_push.now_utc = lambda: current_time - timedelta(days=91)
     try:
@@ -581,11 +582,19 @@ def exercise_sync_compaction(test_engine) -> None:
             base_version=b_created.entityVersion,
             base_hash=b_created.contentHash,
         )
-        push(entity_c, "create", {"text": "old-unchanged"})
+        c_created = push(entity_c, "create", {"text": "old-unchanged"})
+        boundary_created = push(entity_boundary, "create", {"text": "old-boundary-anchor"})
     finally:
         sync_push.now_utc = original_now_utc
     recent = push(entity_recent, "create", {"text": "recent"})
-    assert a_updated.entityVersion == 2 and recent.entityVersion == 1
+    boundary_updated = push(
+        entity_boundary,
+        "update",
+        {"text": "recent-boundary-update"},
+        base_version=boundary_created.entityVersion,
+        base_hash=boundary_created.contentHash,
+    )
+    assert a_updated.entityVersion == boundary_updated.entityVersion == 2 and recent.entityVersion == 1
 
     first_snapshot = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=None, page_size=2)
     old_snapshot_cursor = first_snapshot.nextCursor
@@ -605,7 +614,7 @@ def exercise_sync_compaction(test_engine) -> None:
         current_time=current_time,
         session_factory=sessions,
     )
-    assert dry_run.applied is False and dry_run.deletedRows == 2 and dry_run.preservedRows == 3
+    assert dry_run.applied is False and dry_run.deletedRows == 2 and dry_run.preservedRows == 4
     applied = sync_compaction.compact_sync_stream(
         owner_id=user.id,
         scope="personal",
@@ -635,6 +644,13 @@ def exercise_sync_compaction(test_engine) -> None:
 
     fresh_snapshot = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=None, page_size=2)
     after_entries = list(fresh_snapshot.entries)
+    concurrent = push(
+        entity_c,
+        "update",
+        {"text": "concurrent-after-snapshot-boundary"},
+        base_version=c_created.entityVersion,
+        base_hash=c_created.contentHash,
+    )
     page = fresh_snapshot
     while page.hasMore:
         page = sync_read.snapshot_entities(user=user, device_id=device_id, cursor=page.nextCursor, page_size=2)
@@ -643,15 +659,44 @@ def exercise_sync_compaction(test_engine) -> None:
     tombstone = next(entry for entry in after_entries if entry.entityId == entity_b)
     assert tombstone.kind.value == "delete" and tombstone.snapshot is None
 
+    catch_up = sync_read.pull_changes(
+        user=user,
+        device_id=device_id,
+        cursor=fresh_snapshot.resumeCursor,
+        page_size=10,
+    )
+    assert [(change.entityId, change.version) for change in catch_up.changes] == [(entity_c, concurrent.entityVersion)]
+    assert catch_up.changes[0].snapshot == {"text": "concurrent-after-snapshot-boundary"}
+    assert catch_up.hasMore is False
+
     with sessions() as session:
         stream = session.get(SyncStreamRow, (user.id, "personal"))
         assert stream is not None
         assert stream.retained_from_sequence == applied.newRetainedFromSequence
         assert stream.snapshot_version == 1
-        assert session.query(SyncEntityVersionRow).filter(SyncEntityVersionRow.owner_id == user.id).count() == 6
-        remaining_changes = session.query(SyncChangeLogRow).filter(SyncChangeLogRow.owner_id == user.id).all()
-        assert len(remaining_changes) == 4
-        assert {row.public_id for row in remaining_changes} == {entity_a, entity_b, entity_c, entity_recent}
+        assert session.query(SyncEntityVersionRow).filter(SyncEntityVersionRow.owner_id == user.id).count() == 9
+        remaining_changes = (
+            session.query(SyncChangeLogRow).filter(SyncChangeLogRow.owner_id == user.id).order_by(SyncChangeLogRow.sequence).all()
+        )
+        assert len(remaining_changes) == 7
+        assert {row.public_id for row in remaining_changes} == {
+            entity_a,
+            entity_b,
+            entity_c,
+            entity_recent,
+            entity_boundary,
+        }
+        versions_by_entity = {
+            public_id: [row.version for row in remaining_changes if row.public_id == public_id]
+            for public_id in {entity_a, entity_b, entity_c, entity_recent, entity_boundary}
+        }
+        assert versions_by_entity == {
+            entity_a: [2],
+            entity_b: [2],
+            entity_c: [1, 2],
+            entity_recent: [1],
+            entity_boundary: [1, 2],
+        }
         horizon_cursor = sync_read._change_cursor(
             owner_id=user.id,
             device_id=device_id,
@@ -659,7 +704,7 @@ def exercise_sync_compaction(test_engine) -> None:
             sequence=stream.retained_from_sequence,
         )
     incremental = sync_read.pull_changes(user=user, device_id=device_id, cursor=horizon_cursor, page_size=10)
-    assert [change.entityId for change in incremental.changes] == [entity_recent]
+    assert [change.entityId for change in incremental.changes] == [entity_recent, entity_boundary, entity_c]
     assert incremental.hasMore is False
 
     immutable_attempts = [
@@ -674,6 +719,10 @@ def exercise_sync_compaction(test_engine) -> None:
         (
             'DELETE FROM sync_change_log WHERE "ownerId" = :owner_id AND "publicId" = :public_id',
             {"owner_id": user.id, "public_id": entity_recent},
+        ),
+        (
+            'DELETE FROM sync_change_log WHERE "ownerId" = :owner_id AND "publicId" = :public_id AND version = 1',
+            {"owner_id": user.id, "public_id": entity_boundary},
         ),
     ]
     for statement, parameters in immutable_attempts:

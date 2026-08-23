@@ -45,6 +45,7 @@ def _deletable_predicate(*, owner_id: int, scope: str, boundary: int):
                 later.entity_type == SyncChangeLogRow.entity_type,
                 later.public_id == SyncChangeLogRow.public_id,
                 later.sequence > SyncChangeLogRow.sequence,
+                later.sequence <= boundary,
             )
         ),
     )

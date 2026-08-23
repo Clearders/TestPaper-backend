@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from testpaper_backend.db import SyncStreamRow
-from testpaper_backend.services.sync_compaction import compact_sync_stream
+from sqlalchemy import delete
+from sqlalchemy.dialects import postgresql
+
+from testpaper_backend.db import SyncChangeLogRow, SyncStreamRow
+from testpaper_backend.services.sync_compaction import _deletable_predicate, compact_sync_stream
 
 NOW = datetime(2026, 8, 23, tzinfo=UTC)
 
@@ -91,3 +94,11 @@ def test_applied_compaction_advances_metadata_before_safe_delete() -> None:
     assert current.epoch != original_epoch
     assert current.compacted_at == NOW
     assert session.flushes == session.commits == 1
+
+
+def test_deletion_requires_a_later_entity_row_at_or_below_the_boundary() -> None:
+    statement = delete(SyncChangeLogRow).where(*_deletable_predicate(owner_id=7, scope="personal", boundary=9))
+    sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+    assert "sync_change_log_1.sequence > sync_change_log.sequence" in sql
+    assert "sync_change_log_1.sequence <= 9" in sql
