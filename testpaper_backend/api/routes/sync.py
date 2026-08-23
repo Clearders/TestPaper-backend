@@ -19,6 +19,7 @@ from testpaper_backend.schemas import (
     Envelope,
     SyncAckRequest,
     SyncAckResponse,
+    SyncCapabilities,
     SyncConflictRecord,
     SyncConflictResolutionRecord,
     SyncConflictResolutionRequest,
@@ -30,6 +31,14 @@ from testpaper_backend.schemas import (
     SyncSnapshotResponse,
     SyncVersionRestoreRecord,
     SyncVersionRestoreRequest,
+)
+from testpaper_backend.schemas.sync import (
+    MAX_SYNC_BATCH_BYTES,
+    MAX_SYNC_MUTATION_BYTES,
+    MAX_SYNC_MUTATIONS,
+    SYNC_IDEMPOTENCY_RETENTION_DAYS,
+    SYNC_PROTOCOL_VERSION,
+    SYNC_SNAPSHOT_URL,
 )
 from testpaper_backend.services.attachment_transfers import (
     complete_attachment_upload,
@@ -50,6 +59,20 @@ from testpaper_backend.services.sync_push import push_mutations
 from testpaper_backend.services.sync_read import acknowledge_cursor, pull_changes, snapshot_entities
 
 router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
+
+
+@router.get("/capabilities", response_model=Envelope[SyncCapabilities])
+def get_sync_capabilities(request: Request, _current_user: CurrentUserDep):
+    capabilities = SyncCapabilities(
+        protocolVersions=[SYNC_PROTOCOL_VERSION],
+        entitySchemaVersions={entity_type: [1] for entity_type in SyncEntityType},
+        maxMutations=MAX_SYNC_MUTATIONS,
+        maxMutationBytes=MAX_SYNC_MUTATION_BYTES,
+        maxBatchBytes=MAX_SYNC_BATCH_BYTES,
+        idempotencyRetentionDays=SYNC_IDEMPOTENCY_RETENTION_DAYS,
+        snapshotUrl=SYNC_SNAPSHOT_URL,
+    )
+    return envelope(capabilities, request)
 
 
 @router.get("/conflicts/{conflict_id}", response_model=Envelope[SyncConflictRecord])

@@ -65,6 +65,13 @@ def test_append_only_version_and_change_invariants_are_database_backed() -> None
     }
     assert change_indexes["ix_sync_change_log_pull"] == ("ownerId", "scope", "sequence")
     assert change_indexes["ix_sync_change_log_compaction"] == ("ownerId", "createdAt", "sequence")
+    assert change_indexes["ix_sync_change_log_entity_sequence"] == (
+        "ownerId",
+        "scope",
+        "entityType",
+        "publicId",
+        "sequence",
+    )
 
 
 def test_conflicts_preserve_three_way_snapshots_and_resolution_audit_links() -> None:
@@ -87,6 +94,7 @@ def test_conflicts_preserve_three_way_snapshots_and_resolution_audit_links() -> 
         "ck_sync_conflict_resolutions_undo_link",
     } <= checks
     assert {"acceptedVersionId", "resultSnapshot", "undoesResolutionId", "resolvedAt"} <= set(resolution.columns.keys())
+    assert conflict.columns["baseSnapshot"].type.none_as_null is True
     assert "requestHash" in resolution.columns
     assert "uq_sync_version_restores_owner_operation" in constraint_names("sync_version_restores", UniqueConstraint)
 

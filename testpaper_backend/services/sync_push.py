@@ -30,13 +30,21 @@ from testpaper_backend.schemas import (
     SyncPushResponse,
     UserEntity,
 )
+from testpaper_backend.schemas.sync import (
+    MAX_SYNC_BATCH_BYTES,
+    MAX_SYNC_MUTATION_BYTES,
+    MAX_SYNC_MUTATIONS,
+    SYNC_IDEMPOTENCY_RETENTION_DAYS,
+    SYNC_PROTOCOL_VERSION,
+)
 from testpaper_backend.services.attachment_maintenance import apply_attachment_reference_lifecycle
 from testpaper_backend.services.sync_conflicts import create_conflict
 from testpaper_backend.time_utils import now_utc
 
-IDEMPOTENCY_RETENTION_DAYS = 90
-MAX_PUSH_MUTATIONS = 100
-SYNC_PROTOCOL_VERSION = 1
+IDEMPOTENCY_RETENTION_DAYS = SYNC_IDEMPOTENCY_RETENTION_DAYS
+MAX_PUSH_MUTATIONS = MAX_SYNC_MUTATIONS
+MAX_PUSH_MUTATION_BYTES = MAX_SYNC_MUTATION_BYTES
+MAX_PUSH_BATCH_BYTES = MAX_SYNC_BATCH_BYTES
 
 _DB_STATUS = {
     SyncOperationStatus.applied: "applied",
@@ -57,6 +65,44 @@ def _digest(value: Any) -> str:
 
 def _request_hash(payload: SyncPushRequest) -> str:
     return _digest(payload.model_dump(mode="json"))
+
+
+def _canonical_size(value: Any) -> int:
+    return len(_canonical_json(value).encode("utf-8"))
+
+
+def _batch_limit_details() -> dict[str, int]:
+    return {
+        "maxMutations": MAX_PUSH_MUTATIONS,
+        "maxMutationBytes": MAX_PUSH_MUTATION_BYTES,
+        "maxBatchBytes": MAX_PUSH_BATCH_BYTES,
+    }
+
+
+def _enforce_batch_limits(payload: SyncPushRequest) -> None:
+    details = _batch_limit_details()
+    if len(payload.mutations) > MAX_PUSH_MUTATIONS:
+        raise api_error(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "SYNC_BATCH_TOO_LARGE",
+            f"A push batch may contain at most {MAX_PUSH_MUTATIONS} mutations",
+            details,
+        )
+    for mutation in payload.mutations:
+        if _canonical_size(mutation.model_dump(mode="json")) > MAX_PUSH_MUTATION_BYTES:
+            raise api_error(
+                status.HTTP_413_CONTENT_TOO_LARGE,
+                "SYNC_BATCH_TOO_LARGE",
+                "A sync mutation exceeds the canonical JSON byte limit",
+                details,
+            )
+    if _canonical_size(payload.model_dump(mode="json")) > MAX_PUSH_BATCH_BYTES:
+        raise api_error(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "SYNC_BATCH_TOO_LARGE",
+            "The sync batch exceeds the canonical JSON byte limit",
+            details,
+        )
 
 
 def _error(code: str, message: str, *, details: dict[str, Any] | None = None) -> SyncError:
@@ -320,13 +366,7 @@ def push_mutations(
         )
     if payload.deviceId != authenticated_device_id:
         raise api_error(status.HTTP_403_FORBIDDEN, "SYNC_ENTITY_FORBIDDEN", "deviceId does not match the access token")
-    if len(payload.mutations) > MAX_PUSH_MUTATIONS:
-        raise api_error(
-            status.HTTP_413_CONTENT_TOO_LARGE,
-            "SYNC_BATCH_TOO_LARGE",
-            f"A push batch may contain at most {MAX_PUSH_MUTATIONS} mutations",
-            {"maximumOperations": MAX_PUSH_MUTATIONS},
-        )
+    _enforce_batch_limits(payload)
 
     request_hash = _request_hash(payload)
     now = now_utc()
@@ -409,26 +449,46 @@ def push_mutations(
                     )
                 else:
                     current = session.scalar(_entity_query(user.id, mutation))
-                    result = (
-                        _conflict(mutation, current)
-                        if current is not None
-                        else _rejected(
-                            mutation,
-                            "SYNC_BATCH_INVALID",
-                            "The operation violates a sync persistence invariant",
-                        )
-                    )
-                    with session.begin_nested():
-                        session.add(
-                            _result_row(
-                                batch_id=batch.id,
-                                owner_id=user.id,
-                                ordinal=ordinal,
+                    if mutation.kind == SyncMutationKind.create and current is not None:
+                        with session.begin_nested():
+                            result = create_conflict(
+                                session,
+                                user=user,
+                                device_id=authenticated_device_id,
                                 mutation=mutation,
-                                result=result,
+                                entity=current,
+                            )
+                            session.add(
+                                _result_row(
+                                    batch_id=batch.id,
+                                    owner_id=user.id,
+                                    ordinal=ordinal,
+                                    mutation=mutation,
+                                    result=result,
+                                )
+                            )
+                            session.flush()
+                    else:
+                        result = (
+                            _conflict(mutation, current)
+                            if current is not None
+                            else _rejected(
+                                mutation,
+                                "SYNC_BATCH_INVALID",
+                                "The operation violates a sync persistence invariant",
                             )
                         )
-                        session.flush()
+                        with session.begin_nested():
+                            session.add(
+                                _result_row(
+                                    batch_id=batch.id,
+                                    owner_id=user.id,
+                                    ordinal=ordinal,
+                                    mutation=mutation,
+                                    result=result,
+                                )
+                            )
+                            session.flush()
             results.append(result)
             results_by_id[mutation.operationId] = result
 

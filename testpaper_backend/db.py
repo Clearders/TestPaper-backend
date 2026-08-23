@@ -384,6 +384,14 @@ class SyncChangeLogRow(Base):
         CheckConstraint('length("contentHash") = 64', name="ck_sync_change_log_content_hash"),
         Index("ix_sync_change_log_pull", "ownerId", "scope", "sequence"),
         Index("ix_sync_change_log_compaction", "ownerId", "createdAt", "sequence"),
+        Index(
+            "ix_sync_change_log_entity_sequence",
+            "ownerId",
+            "scope",
+            "entityType",
+            "publicId",
+            "sequence",
+        ),
     )
 
     sequence: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -566,7 +574,7 @@ class SyncConflictRow(Base):
     entity_type: Mapped[str] = mapped_column("entityType", String(32), nullable=False)
     origin: Mapped[str] = mapped_column(String(24), nullable=False)
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
-    base_snapshot: Mapped[dict[str, Any] | None] = mapped_column("baseSnapshot", JSONB, nullable=True)
+    base_snapshot: Mapped[dict[str, Any] | None] = mapped_column("baseSnapshot", JSONB(none_as_null=True), nullable=True)
     local_snapshot: Mapped[dict[str, Any]] = mapped_column("localSnapshot", JSONB, nullable=False)
     cloud_snapshot: Mapped[dict[str, Any]] = mapped_column("cloudSnapshot", JSONB, nullable=False)
     detected_at: Mapped[datetime] = mapped_column("detectedAt", DateTime(timezone=True), nullable=False)

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from testpaper_backend.config import get_auth_cookie_secure, is_production
 from testpaper_backend.core.logging_config import set_request_id
 from testpaper_backend.core.responses import error_envelope
+from testpaper_backend.schemas.sync import MAX_SYNC_BATCH_BYTES, MAX_SYNC_MUTATION_BYTES, MAX_SYNC_MUTATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         sync_request = request.url.path.startswith("/api/v1/sync/")
-        batch_too_large = sync_request and any(
+        batch_too_large = request.url.path == "/api/v1/sync/push" and any(
             error["type"] == "too_long" and tuple(error["loc"][1:2]) == ("mutations",) for error in exc.errors()
+        )
+        details = (
+            {
+                "maxMutations": MAX_SYNC_MUTATIONS,
+                "maxMutationBytes": MAX_SYNC_MUTATION_BYTES,
+                "maxBatchBytes": MAX_SYNC_BATCH_BYTES,
+            }
+            if batch_too_large
+            else [{"field": ".".join(str(item) for item in error["loc"][1:]), "reason": error["msg"]} for error in exc.errors()]
         )
         return JSONResponse(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE if batch_too_large else status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -65,7 +75,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "SYNC_BATCH_TOO_LARGE" if batch_too_large else "SYNC_BATCH_INVALID" if sync_request else "VALIDATION_ERROR",
                 "Sync batch contains too many mutations" if batch_too_large else "Request validation failed",
                 request,
-                details=[{"field": ".".join(str(item) for item in error["loc"][1:]), "reason": error["msg"]} for error in exc.errors()],
+                details=details,
             ),
         )
 

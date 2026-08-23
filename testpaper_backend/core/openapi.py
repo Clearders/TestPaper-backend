@@ -11,7 +11,7 @@ from pydantic import TypeAdapter
 from testpaper_backend.schemas.common import ErrorEnvelope
 from testpaper_backend.schemas.realtime import CLIENT_MESSAGE_ADAPTER, SERVER_MESSAGE_ADAPTER
 
-API_CONTRACT_VERSION = "1.2.0"
+API_CONTRACT_VERSION = "1.3.0"
 API_CONTRACT_TITLE = "TestPaper Backend"
 OPENAPI_VERSION = "3.1.0"
 
@@ -118,7 +118,7 @@ def _apply_http_contract(schema: dict[str, Any]) -> None:
                 responses.setdefault("426", _error_response("The requested sync protocol version is unsupported."))
             if path == "/api/v1/sync/push":
                 responses.setdefault("409", _error_response("The idempotency key or entity base version conflicts."))
-                responses.setdefault("413", _error_response("The sync batch exceeds the operation limit."))
+                responses.setdefault("413", _error_response("The sync batch exceeds a mutation-count or canonical-byte limit."))
             if path.startswith("/api/v1/sync/attachments/"):
                 responses.setdefault("409", _error_response("The upload state, digest, or attachment version conflicts."))
             if "/chunks/" in path:

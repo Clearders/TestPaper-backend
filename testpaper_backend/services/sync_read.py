@@ -29,13 +29,25 @@ from testpaper_backend.schemas import (
     SyncSnapshotResponse,
     UserEntity,
 )
+from testpaper_backend.schemas.sync import SYNC_PROTOCOL_VERSION, SYNC_SNAPSHOT_URL
 from testpaper_backend.time_utils import as_aware_utc, now_utc
 
-SYNC_PROTOCOL_VERSION = 1
 MAX_PULL_PAGE_SIZE = 500
 DEFAULT_PULL_PAGE_SIZE = 100
 DEVICE_CURSOR_TTL_DAYS = 90
 PERSONAL_SCOPE = "personal"
+
+
+def _cursor_expired(stream: SyncStreamRow, message: str):
+    return api_error(
+        status.HTTP_410_GONE,
+        "SYNC_CURSOR_EXPIRED",
+        message,
+        {
+            "snapshotUrl": SYNC_SNAPSHOT_URL,
+            "oldestRetainedSequence": str(stream.retained_from_sequence),
+        },
+    )
 
 
 def _b64encode(value: bytes) -> str:
@@ -129,7 +141,7 @@ def _device_cursor(
         raise api_error(status.HTTP_403_FORBIDDEN, "SYNC_ENTITY_FORBIDDEN", "The sync device is revoked")
     expired = as_aware_utc(device.expires_at) <= now or device.stream_epoch != stream.epoch
     if expired and not allow_recovery:
-        raise api_error(status.HTTP_410_GONE, "SYNC_CURSOR_EXPIRED", "The device cursor requires snapshot recovery")
+        raise _cursor_expired(stream, "The device cursor requires snapshot recovery")
     if expired:
         device.stream_epoch = stream.epoch
     device.last_seen_at = now
@@ -168,12 +180,12 @@ def _validate_change_cursor(
     ):
         raise api_error(status.HTTP_400_BAD_REQUEST, "SYNC_CURSOR_INVALID", "The sync cursor has the wrong audience")
     if data.get("epoch") != stream.epoch:
-        raise api_error(status.HTTP_410_GONE, "SYNC_CURSOR_EXPIRED", "The sync cursor epoch has expired")
+        raise _cursor_expired(stream, "The sync cursor epoch has expired")
     sequence = data.get("sequence")
     if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
         raise api_error(status.HTTP_400_BAD_REQUEST, "SYNC_CURSOR_INVALID", "The sync cursor sequence is invalid")
     if sequence < stream.retained_from_sequence:
-        raise api_error(status.HTTP_410_GONE, "SYNC_CURSOR_EXPIRED", "The sync cursor precedes retained history")
+        raise _cursor_expired(stream, "The sync cursor precedes retained history")
     return sequence
 
 
@@ -207,7 +219,7 @@ def pull_changes(
             else device.cursor_sequence
         )
         if sequence < stream.retained_from_sequence:
-            raise api_error(status.HTTP_410_GONE, "SYNC_CURSOR_EXPIRED", "The device cursor precedes retained history")
+            raise _cursor_expired(stream, "The device cursor precedes retained history")
         rows = session.execute(
             select(
                 SyncChangeLogRow.sequence,

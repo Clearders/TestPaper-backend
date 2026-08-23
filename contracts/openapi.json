@@ -1401,6 +1401,28 @@
         "title": "Envelope[SyncAckResponse]",
         "type": "object"
       },
+      "Envelope_SyncCapabilities_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncCapabilities"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/MetaInfo"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "Envelope[SyncCapabilities]",
+        "type": "object"
+      },
       "Envelope_SyncConflictRecord_": {
         "properties": {
           "data": {
@@ -5010,6 +5032,69 @@
         "title": "SyncAckResponse",
         "type": "object"
       },
+      "SyncCapabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "entitySchemaVersions": {
+            "additionalProperties": {
+              "items": {
+                "const": 1,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/SyncEntityType"
+            },
+            "title": "Entityschemaversions",
+            "type": "object"
+          },
+          "idempotencyRetentionDays": {
+            "minimum": 1.0,
+            "title": "Idempotencyretentiondays",
+            "type": "integer"
+          },
+          "maxBatchBytes": {
+            "minimum": 1.0,
+            "title": "Maxbatchbytes",
+            "type": "integer"
+          },
+          "maxMutationBytes": {
+            "minimum": 1.0,
+            "title": "Maxmutationbytes",
+            "type": "integer"
+          },
+          "maxMutations": {
+            "minimum": 1.0,
+            "title": "Maxmutations",
+            "type": "integer"
+          },
+          "protocolVersions": {
+            "items": {
+              "const": 1,
+              "type": "integer"
+            },
+            "title": "Protocolversions",
+            "type": "array"
+          },
+          "snapshotUrl": {
+            "minLength": 1,
+            "title": "Snapshoturl",
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocolVersions",
+          "entitySchemaVersions",
+          "maxMutations",
+          "maxMutationBytes",
+          "maxBatchBytes",
+          "idempotencyRetentionDays",
+          "snapshotUrl"
+        ],
+        "title": "SyncCapabilities",
+        "type": "object"
+      },
       "SyncChange": {
         "properties": {
           "contentHash": {
@@ -6235,7 +6320,7 @@
     "description": "The canonical HTTP contract for `/api/v1`. Browser clients use Cookie + CSRF authentication; native clients inject Bearer credentials. WebSocket messages are described by `x-testpapers-websocket`.",
     "summary": "Versioned Cloud contract shared by TestPapers Web, Desktop, and Mobile.",
     "title": "TestPaper Backend",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14374,6 +14459,102 @@
         ]
       }
     },
+    "/api/v1/sync/capabilities": {
+      "get": {
+        "operationId": "get_sync_capabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SyncCapabilities_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or request is invalid."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication is required."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The caller is not allowed to perform this operation."
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The sync cursor or snapshot has expired."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The requested sync protocol version is unsupported."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unexpected server error."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get Sync Capabilities",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
     "/api/v1/sync/conflicts/{conflict_id}": {
       "get": {
         "operationId": "get_sync_conflict",
@@ -15232,7 +15413,7 @@
                 }
               }
             },
-            "description": "The sync batch exceeds the operation limit."
+            "description": "The sync batch exceeds a mutation-count or canonical-byte limit."
           },
           "422": {
             "content": {

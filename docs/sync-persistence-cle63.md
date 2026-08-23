@@ -140,6 +140,14 @@ Completed idempotency rows outlive the maximum documented client retry interval.
 never remove a `processing` batch and must not remove a completed batch while clients can still
 legitimately replay its key.
 
+Revision `20260823_0026` keeps updates to `sync_change_log` prohibited and permits deletion only
+when PostgreSQL can prove that the row is at or below the stream's committed retention horizon
+and a later row exists for the same logical entity. The compactor retains the latest change for
+every entity, including tombstones, so snapshots remain reconstructable after physical history
+removal. Operators use `scripts/compact_sync_change_log.py`; it is a dry run unless `--apply` is
+explicitly supplied. Compaction is irreversible, so rollback disables the operator before the
+migration restores the blanket append-only trigger.
+
 ## Query-plan baseline
 
 The migration smoke test disables sequential scans for the empty-schema probe and verifies these

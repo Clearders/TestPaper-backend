@@ -52,6 +52,10 @@ def test_tampered_and_compacted_cursors_use_stable_errors(monkeypatch) -> None:
         sync_read._validate_change_cursor(cursor, owner_id=7, device_id="desktop-1", stream=stream(retained_from_sequence=3))
     assert expired.value.status_code == 410
     assert expired.value.detail["code"] == "SYNC_CURSOR_EXPIRED"
+    assert expired.value.detail["details"] == {
+        "snapshotUrl": "/api/v1/sync/snapshot",
+        "oldestRetainedSequence": "3",
+    }
 
 
 def test_epoch_rotation_expires_incremental_cursor(monkeypatch) -> None:
@@ -62,3 +66,5 @@ def test_epoch_rotation_expires_incremental_cursor(monkeypatch) -> None:
     with pytest.raises(HTTPException) as expired:
         sync_read._validate_change_cursor(cursor, owner_id=7, device_id="desktop-1", stream=rotated)
     assert expired.value.detail["code"] == "SYNC_CURSOR_EXPIRED"
+    assert expired.value.detail["details"]["snapshotUrl"] == "/api/v1/sync/snapshot"
+    assert expired.value.detail["details"]["oldestRetainedSequence"] == "0"
